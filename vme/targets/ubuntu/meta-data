@@ -1,0 +1,5 @@
+# cloud-init meta-data — intentionally empty.
+# Required by the nocloud datasource; instance-id prevents re-provisioning
+# if cloud-init runs again on the same hardware.
+instance-id: vme-provisioned
+local-hostname: vme-target
