@@ -1,0 +1,29 @@
+# VME configuration file — copy to vme-config.yml and edit before deploying.
+
+# Network interface on the seed machine connected to the provisioning network.
+provisioning_interface: eth0
+
+# DHCP range served to PXE clients.
+dhcp_range_start: 192.168.100.100
+dhcp_range_end: 192.168.100.200
+dhcp_lease_time: 12h
+
+# Local directory where OS images are cached.
+# Defaults to ~/.velocitee/cache/images/ if omitted.
+# image_cache_dir: ~/.velocitee/cache/images/
+
+# Target machine configuration.
+target:
+  hostname: node-01
+  ip: 192.168.100.10
+  gateway: 192.168.100.1
+  netmask: 255.255.255.0
+  dns: 8.8.8.8
+  os: proxmox-ve          # proxmox-ve | ubuntu-server
+  disk: /dev/sda          # install target disk
+
+  # SSH public key injected into the provisioned machine.
+  ssh_public_key: "ssh-ed25519 AAAA... user@host"
+
+# Where VME writes the handoff manifest after a successful deployment.
+manifest_output_dir: ./manifests/output/
