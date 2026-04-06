@@ -1,0 +1,72 @@
+---
+# VME seed stack
+# Run via: vme deploy (which calls docker compose up after pre-flight)
+#
+# Environment variables are injected from vme-config.yml by the Python CLI.
+# Do not set them manually unless you know what you are doing.
+
+services:
+
+  # -------------------------------------------------------------------------
+  # iPXE builder — runs once, copies binaries to the ipxe_bins volume.
+  # -------------------------------------------------------------------------
+  ipxe-build:
+    build:
+      context: ./seed/ipxe
+      dockerfile: Dockerfile
+      args:
+        TARGETARCH: ${TARGETARCH:-amd64}
+    volumes:
+      - ipxe_bins:/out
+    command: cp /undionly.kpxe /ipxe.efi /out/
+    # Restart policy: never — this is a one-shot builder.
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # dnsmasq — DHCP + TFTP
+  # Requires host network or macvlan so it can receive broadcast DHCP DISCOVERs.
+  # -------------------------------------------------------------------------
+  dnsmasq:
+    image: dockurr/dnsmasq:latest
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./seed/dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf:ro
+      - ipxe_bins:/tftp:ro
+    environment:
+      PROVISIONING_INTERFACE: ${PROVISIONING_INTERFACE}
+      DHCP_RANGE_START: ${DHCP_RANGE_START}
+      DHCP_RANGE_END: ${DHCP_RANGE_END}
+      DHCP_LEASE_TIME: ${DHCP_LEASE_TIME:-12h}
+      SEED_IP: ${SEED_IP}
+    depends_on:
+      ipxe-build:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # nginx — serves iPXE scripts and OS images
+  # -------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    network_mode: host
+    volumes:
+      - ./seed/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # iPXE binaries + boot script
+      - ipxe_bins:/srv/ipxe:ro
+      # OS image cache — bind-mounted from host; no images copied into container
+      - ${IMAGE_CACHE_DIR:-~/.velocitee/cache/images}:/srv/images:ro
+      # iPXE boot script accessible under /srv/ipxe/
+      - ./seed/ipxe/boot.ipxe:/srv/ipxe/boot.ipxe:ro
+      # cloud-init user-data (Ubuntu autoinstall)
+      - ./targets/ubuntu/preseed.cfg:/srv/cloud-init/user-data:ro
+      - ./targets/ubuntu/meta-data:/srv/cloud-init/meta-data:ro
+    depends_on:
+      ipxe-build:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  ipxe_bins:
