@@ -17,7 +17,8 @@ services:
         TARGETARCH: ${TARGETARCH:-amd64}
     volumes:
       - ipxe_bins:/out
-    command: sh -c "cp /undionly.kpxe /ipxe.efi /out/"
+      - ./run/ipxe/boot.ipxe:/boot.ipxe:ro
+    command: sh -c "cp /undionly.kpxe /ipxe.efi /boot.ipxe /out/"
     restart: "no"
 
   # -------------------------------------------------------------------------
@@ -49,7 +50,6 @@ services:
     volumes:
       - ./seed/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ipxe_bins:/srv/ipxe:ro
-      - ./run/ipxe/boot.ipxe:/srv/ipxe/boot.ipxe:ro
       - ./run/cloud-init:/srv/cloud-init:ro
       - ${IMAGE_CACHE_DIR:-~/.velocitee/cache/images}:/srv/images:ro
     depends_on:

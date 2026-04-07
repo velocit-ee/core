@@ -62,7 +62,7 @@ fi
 # ─── Docker ────────────────────────────────────────────────────────────────
 _section "Docker"
 
-if _need docker; then
+if ! _need docker; then
     echo "  Installing Docker ..."
     sudo apt-get update -qq
     sudo apt-get install -y -qq ca-certificates curl gnupg lsb-release
@@ -81,11 +81,20 @@ $(lsb_release -cs) stable" \
     sudo apt-get update -qq
     sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
+    # Enable and start the daemon now.
+    sudo systemctl enable --now docker
+
+    # On Ubuntu with systemd-resolved, 127.0.0.53 is not reachable from inside
+    # Docker containers, causing apt and git to fail during image builds.
+    if [[ ! -f /etc/docker/daemon.json ]]; then
+        echo '{"dns": ["8.8.8.8", "8.8.4.4"]}' | sudo tee /etc/docker/daemon.json > /dev/null
+        sudo systemctl restart docker
+        _green "  Docker DNS configured (8.8.8.8)."
+    fi
+
     # Allow the current user to run docker without sudo.
     sudo usermod -aG docker "$USER"
     _green "  Docker installed."
-    _yellow "  Note: you may need to log out and back in for the docker group to take effect."
-    _yellow "        If 'vme deploy' fails with a permission error, run: newgrp docker"
 else
     _green "  Docker already installed: $(docker --version)"
 
@@ -155,7 +164,12 @@ echo "  Installing 'vme' command to $BIN_DIR ..."
 sudo tee "$BIN_DIR/vme" > /dev/null <<EOF
 #!/usr/bin/env bash
 # VME launcher — created by install.sh
+# If docker isn't accessible in the current session (group not yet active),
+# re-exec with sg docker so the user never has to run newgrp manually.
 cd "$VME_DIR"
+if ! docker info &>/dev/null 2>&1 && groups | grep -qv docker && getent group docker &>/dev/null; then
+    exec sg docker -c "$VME_DIR/.venv/bin/python -m cli.vme \$*"
+fi
 exec "$VME_DIR/.venv/bin/python" -m cli.vme "\$@"
 EOF
 sudo chmod +x "$BIN_DIR/vme"

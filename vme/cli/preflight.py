@@ -164,6 +164,43 @@ def check_no_conflicting_dhcp(interface: str) -> CheckResult:
     )
 
 
+def check_firewall(interface: str) -> CheckResult:
+    """Warn if ufw is active and port 67 (DHCP) is not explicitly allowed."""
+    try:
+        ufw = subprocess.run(["sudo", "ufw", "status"], capture_output=True, text=True, timeout=5)
+        if "Status: active" not in ufw.stdout:
+            return CheckResult(name="firewall", passed=True, detail="ufw is inactive.")
+        if ":67" in ufw.stdout or "67/udp" in ufw.stdout or f"on {interface}" in ufw.stdout:
+            return CheckResult(name="firewall", passed=True, detail="ufw active; DHCP port appears open.")
+        return CheckResult(
+            name="firewall",
+            passed=False,
+            detail="ufw is active but port 67 (DHCP) may be blocked — target VMs won't get an IP.",
+            fix=f"Run: sudo ufw allow in on {interface} to any port 67 proto udp",
+        )
+    except Exception:
+        return CheckResult(name="firewall", passed=True, detail="Could not check firewall state.")
+
+
+def check_tftp_port() -> CheckResult:
+    """Check that port 69 (TFTP) is not already in use."""
+    try:
+        result = subprocess.run(
+            ["ss", "-tulnp"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if ":69 " in result.stdout or ":69\n" in result.stdout:
+            return CheckResult(
+                name="tftp_port",
+                passed=False,
+                detail="Port 69 (TFTP) is already in use — likely tftpd-hpa or in.tftpd.",
+                fix="Run: sudo systemctl stop tftpd-hpa  (or: sudo kill $(pgrep in.tftpd))",
+            )
+    except Exception:
+        pass
+    return CheckResult(name="tftp_port", passed=True, detail="Port 69 is available.")
+
+
 def check_config(config_path: Path) -> CheckResult:
     """Validate the user config file for required fields and sane values."""
     if not config_path.exists():
@@ -299,5 +336,7 @@ def run_all(config_path: Path) -> PreflightReport:
     raw_cache = config.get("image_cache_dir", "~/.velocitee/cache/images/")
     cache_dir = Path(raw_cache).expanduser()
     report.add(check_disk_space(cache_dir))
+    report.add(check_tftp_port())
+    report.add(check_firewall(interface))
 
     return report

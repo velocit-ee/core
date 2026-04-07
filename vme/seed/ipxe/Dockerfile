@@ -12,12 +12,14 @@ ARG TARGETARCH=amd64
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     build-essential \
+    gcc-multilib \
     liblzma-dev \
     libz-dev \
     mtools \
-    syslinux \
     ca-certificates \
-    wget \
+    perl \
+    libc6-dev \
+    libc6-dev-i386 \
     gcc-x86-64-linux-gnu \
     binutils-x86-64-linux-gnu \
     && rm -rf /var/lib/apt/lists/*
@@ -35,12 +37,15 @@ WORKDIR /build/src
 
 # Build for x86-64 (always — needed for undionly.kpxe and EFI).
 # Cross-compile if the build host is ARM64.
+# iPXE v1.21.1 triggers several -Werror warnings under GCC 12 (Debian bookworm).
+# Suppress them without touching the iPXE source.
+ENV EXTRA_CFLAGS="-Wno-error=array-bounds -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized -Wno-error=dangling-pointer"
 RUN if [ "${TARGETARCH}" = "arm64" ]; then \
-        CROSS_COMPILE=x86_64-linux-gnu- make bin/undionly.kpxe EMBED=boot.ipxe -j$(nproc); \
-        CROSS_COMPILE=x86_64-linux-gnu- make bin-x86_64-efi/ipxe.efi EMBED=boot.ipxe -j$(nproc); \
+        CROSS_COMPILE=x86_64-linux-gnu- make bin/undionly.kpxe EMBED=boot.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
+        CROSS_COMPILE=x86_64-linux-gnu- make bin-x86_64-efi/ipxe.efi EMBED=boot.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
     else \
-        make bin/undionly.kpxe EMBED=boot.ipxe -j$(nproc); \
-        make bin-x86_64-efi/ipxe.efi EMBED=boot.ipxe -j$(nproc); \
+        make bin/undionly.kpxe EMBED=boot.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
+        make bin-x86_64-efi/ipxe.efi EMBED=boot.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
     fi
 
 # Collect outputs.
@@ -52,5 +57,5 @@ RUN mkdir -p /out && \
 # Final stage — just the built files.
 # docker-compose copies them to the nginx tftp/ipxe volume.
 # ---------------------------------------------------------------------------
-FROM scratch AS artifacts
+FROM busybox AS artifacts
 COPY --from=builder /out/ /
