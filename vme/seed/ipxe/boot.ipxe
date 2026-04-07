@@ -1,9 +1,9 @@
 #!ipxe
 
-# VME boot script — fetched by iPXE after chainload.
-# NGINX_BASE is substituted at image-build time via sed in docker-compose startup.
-# The sed target is the literal string below; do not change it without updating
-# docker-compose.yml accordingly.
+# VME boot script — rendered with real values by the CLI before compose starts.
+# ${NGINX_IP} is substituted by _render_templates() in cli/vme.py.
+# ${PROXMOX_ISO} and ${UBUNTU_ISO} are the actual cached filenames.
+
 set nginx http://${NGINX_IP}
 
 echo
@@ -25,48 +25,40 @@ choose --default proxmox --timeout 30 target || goto exit
 
 goto ${target}
 
+# ---------------------------------------------------------------------------
+# Proxmox VE
+# Boots the ISO via sanboot (HTTP block device) — works on both BIOS and UEFI.
+# No memdisk or ISO extraction required.
+# ---------------------------------------------------------------------------
 :proxmox
 echo Booting Proxmox VE installer ...
-set base ${nginx}/images
-# The ISO is served directly; we use memdisk to load it for legacy BIOS,
-# or the kernel+initrd method for UEFI.
-iseq ${platform} efi && goto proxmox_efi || goto proxmox_bios
+echo Image: ${nginx}/images/${PROXMOX_ISO}
+echo
+sanboot --no-describe ${nginx}/images/${PROXMOX_ISO} || goto failed
 
-:proxmox_bios
-kernel ${nginx}/ipxe/memdisk iso raw
-initrd ${base}/proxmox-ve-latest.iso
-boot || goto failed
-
-:proxmox_efi
-# Proxmox VE ships a standard Linux kernel + initrd in the ISO.
-# We extract and serve them via nginx so EFI clients can boot directly.
-kernel ${base}/proxmox-ve/vmlinuz vga=791 video=vesafb:ywrap,mtrr splash=silent quiet ramdisk_size=16777216 rw prompt_ramdisk=0 install ${base}/proxmox-ve-latest.iso
-initrd ${base}/proxmox-ve/initrd.img
-boot || goto failed
-
+# ---------------------------------------------------------------------------
+# Ubuntu Server
+# Same sanboot approach — loads the live-server ISO over HTTP.
+# ---------------------------------------------------------------------------
 :ubuntu
 echo Booting Ubuntu Server installer ...
-set base ${nginx}/images
-iseq ${platform} efi && goto ubuntu_efi || goto ubuntu_bios
+echo Image: ${nginx}/images/${UBUNTU_ISO}
+echo
+sanboot --no-describe ${nginx}/images/${UBUNTU_ISO} || goto failed
 
-:ubuntu_bios
-kernel ${nginx}/ipxe/memdisk iso raw
-initrd ${base}/ubuntu-lts-latest.iso
-boot || goto failed
-
-:ubuntu_efi
-# Ubuntu autoinstall — kernel+initrd extracted from the ISO and served by nginx.
-kernel ${base}/ubuntu/vmlinuz autoinstall ds=nocloud-net\;s=${nginx}/cloud-init/ ip=dhcp
-initrd ${base}/ubuntu/initrd
-boot || goto failed
-
+# ---------------------------------------------------------------------------
+# Exit
+# ---------------------------------------------------------------------------
 :exit
 echo Exiting iPXE — attempting local disk boot.
 exit 0
 
 :failed
 echo
-echo Boot failed. Check that the image is present at ${nginx}/images/
+echo Boot failed. Possible causes:
+echo   - Image not found at ${nginx}/images/
+echo   - Run: vme images list  (on the seed machine)
+echo
 echo Press any key to return to the menu.
 prompt --key s --timeout 10 || goto menu
 goto menu
