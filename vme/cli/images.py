@@ -56,43 +56,74 @@ def _resolve_proxmox_latest() -> tuple[str, str, str]:
 
 
 def _resolve_ubuntu_latest_lts() -> tuple[str, str, str]:
-    """Query the Ubuntu release API for the latest LTS, then resolve the ISO URL.
+    """Resolve the latest Ubuntu LTS live-server ISO URL and checksum URL.
+
+    Tries the Launchpad API first to find the latest supported LTS series.
+    Falls back to probing known LTS versions directly on releases.ubuntu.com
+    if the API is unavailable.
 
     Returns (version, iso_url, sha256_url).
-    Raises RuntimeError if no LTS release can be found.
+    Raises RuntimeError if no LTS release can be resolved.
     """
-    resp = requests.get(_UBUNTU_RELEASES_API, timeout=30, params={"ws.size": 75})
-    resp.raise_for_status()
-    data: dict[str, Any] = resp.json()
-
-    lts_entries = [
-        e for e in data.get("entries", [])
-        if e.get("supported") and e.get("lts")
-    ]
-    if not lts_entries:
-        raise RuntimeError(
-            "No supported LTS Ubuntu series found via the Launchpad API. "
-            "Check your internet connection or try again later."
-        )
-
-    # Sort by version descending (e.g. "24.04" > "22.04")
-    def _lts_key(e: dict[str, Any]) -> tuple[int, int]:
-        parts = str(e.get("version", "0.0")).split(".")
+    def _is_lts(version: str) -> bool:
         try:
-            return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
-        except ValueError:
-            return 0, 0
+            year, month = str(version).split(".")
+            return int(month) == 4 and int(year) % 2 == 0
+        except (ValueError, AttributeError):
+            return False
 
-    lts_entries.sort(key=_lts_key, reverse=True)
-    latest = lts_entries[0]
-    version = latest["version"]  # e.g. "24.04"
+    def _iso_key(name: str) -> tuple[int, ...]:
+        return tuple(int(p) for p in re.findall(r'\d+', name))
 
-    # Construct the ISO URL from releases.ubuntu.com.
-    iso_filename = f"ubuntu-{version}-live-server-amd64.iso"
-    iso_url = f"{_UBUNTU_RELEASES_BASE}{version}/{iso_filename}"
-    sha256_url = f"{_UBUNTU_RELEASES_BASE}{version}/SHA256SUMS"
+    def _scrape_iso(version: str) -> tuple[str, str, str]:
+        """Scrape releases.ubuntu.com for the latest point-release ISO of *version*."""
+        index_url = f"{_UBUNTU_RELEASES_BASE}{version}/"
+        index_resp = requests.get(index_url, timeout=30)
+        index_resp.raise_for_status()
+        iso_matches = re.findall(r'(ubuntu-[\d.]+-live-server-amd64\.iso)', index_resp.text)
+        if not iso_matches:
+            raise RuntimeError(
+                f"Could not find a live-server ISO for Ubuntu {version} at {index_url}."
+            )
+        iso_filename = sorted(set(iso_matches), key=_iso_key)[-1]
+        return version, f"{index_url}{iso_filename}", f"{index_url}SHA256SUMS"
 
-    return version, iso_url, sha256_url
+    # Try Launchpad API to get the latest supported LTS version.
+    version: str | None = None
+    try:
+        resp = requests.get(_UBUNTU_RELEASES_API, timeout=15, params={"ws.size": 75})
+        resp.raise_for_status()
+        data: dict[str, Any] = resp.json()
+        lts_entries = [
+            e for e in data.get("entries", [])
+            if e.get("supported") and _is_lts(e.get("version", ""))
+        ]
+        if lts_entries:
+            def _lts_key(e: dict[str, Any]) -> tuple[int, int]:
+                parts = str(e.get("version", "0.0")).split(".")
+                try:
+                    return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+                except ValueError:
+                    return 0, 0
+            lts_entries.sort(key=_lts_key, reverse=True)
+            version = str(lts_entries[0]["version"])
+    except Exception:
+        pass  # API unavailable — fall through to probe known versions
+
+    if version:
+        return _scrape_iso(version)
+
+    # Launchpad unavailable — probe known LTS versions newest-first.
+    for candidate in ("26.04", "24.04", "22.04", "20.04"):
+        try:
+            return _scrape_iso(candidate)
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Could not resolve an Ubuntu LTS ISO. "
+        "Check your internet connection and try again."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -127,15 +158,31 @@ def _expected_sha256(sha256_url: str, filename: str) -> str:
 
 
 def _download(url: str, dest: Path, progress: bool = True) -> None:
-    """Stream-download *url* to *dest*, showing a simple progress indicator."""
+    """Stream-download *url* to *dest*, resuming if a partial .tmp file exists."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
+
+    resumed = tmp.stat().st_size if tmp.exists() else 0
+    headers = {"Range": f"bytes={resumed}-"} if resumed else {}
+
     try:
-        with requests.get(url, stream=True, timeout=60) as resp:
-            resp.raise_for_status()
+        with requests.get(url, stream=True, timeout=60, headers=headers) as resp:
+            if resumed and resp.status_code == 416:
+                # Server says range not satisfiable — file already complete.
+                tmp.rename(dest)
+                return
+            if resumed and resp.status_code not in (206, 200):
+                resp.raise_for_status()
+            if not resumed:
+                resp.raise_for_status()
+
             total = int(resp.headers.get("content-length", 0))
-            downloaded = 0
-            with open(tmp, "wb") as fh:
+            if resumed:
+                total += resumed
+
+            downloaded = resumed
+            mode = "ab" if resumed else "wb"
+            with open(tmp, mode) as fh:
                 for chunk in resp.iter_content(chunk_size=65536):
                     fh.write(chunk)
                     downloaded += len(chunk)
@@ -146,9 +193,7 @@ def _download(url: str, dest: Path, progress: bool = True) -> None:
                 print()
         tmp.rename(dest)
     except Exception:
-        if tmp.exists():
-            tmp.unlink()
-        raise
+        raise  # keep the .tmp file so the next run can resume
 
 
 # ---------------------------------------------------------------------------
@@ -171,14 +216,26 @@ def ensure_image(os_name: str, config: dict) -> Path:
     cache = cache_dir_for(config)
     cache.mkdir(parents=True, exist_ok=True)
 
+    # Check if a matching ISO is already cached before hitting the network.
+    patterns = {
+        "proxmox-ve": "proxmox-ve_*.iso",
+        "ubuntu-server": "ubuntu-*-live-server-amd64.iso",
+    }
+    if os_name not in patterns:
+        raise ValueError(f"Unknown OS '{os_name}'. Must be 'proxmox-ve' or 'ubuntu-server'.")
+
+    existing = sorted(cache.glob(patterns[os_name]))
+    if existing:
+        cached = existing[-1]  # newest by filename sort
+        print(f"  Found cached image: {cached.name}")
+        return cached
+
     if os_name == "proxmox-ve":
         version, iso_url, sha256_url = _resolve_proxmox_latest()
         filename = iso_url.rsplit("/", 1)[-1]
-    elif os_name == "ubuntu-server":
+    else:
         version, iso_url, sha256_url = _resolve_ubuntu_latest_lts()
         filename = iso_url.rsplit("/", 1)[-1]
-    else:
-        raise ValueError(f"Unknown OS '{os_name}'. Must be 'proxmox-ve' or 'ubuntu-server'.")
 
     dest = cache / filename
 
@@ -195,21 +252,21 @@ def ensure_image(os_name: str, config: dict) -> Path:
     print(f"  Verifying checksum ...")
     try:
         expected = _expected_sha256(sha256_url, filename)
+        actual = _sha256_file(dest)
+        if actual != expected:
+            dest.unlink()
+            raise RuntimeError(
+                f"Checksum mismatch for {filename}.\n"
+                f"  Expected: {expected}\n"
+                f"  Got:      {actual}\n"
+                "The file has been deleted. Try running 'vme images pull' again."
+            )
+        print(f"  Checksum OK.")
+    except RuntimeError:
+        raise
     except Exception as exc:
-        dest.unlink(missing_ok=True)
-        raise RuntimeError(f"Failed to fetch checksum: {exc}") from exc
-
-    actual = _sha256_file(dest)
-    if actual != expected:
-        dest.unlink()
-        raise RuntimeError(
-            f"Checksum mismatch for {filename}.\n"
-            f"  Expected: {expected}\n"
-            f"  Got:      {actual}\n"
-            "The file has been deleted. Try running 'vme images pull' again."
-        )
-
-    print(f"  Checksum OK.")
+        print(f"  Warning: could not fetch checksum ({exc})")
+        print(f"  Skipping verification — the downloaded file has been kept.")
     return dest
 
 
