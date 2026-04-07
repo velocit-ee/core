@@ -107,16 +107,27 @@ def _assign_ip(interface: str, ip: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _render_templates(cfg: dict, run_dir: Path) -> None:
+def _render_templates(cfg: dict, run_dir: Path, iso_path: Optional[Path] = None) -> None:
     """Render all config templates into *run_dir* before compose starts.
 
     Substitutes values from vme-config.yml into dnsmasq.conf, boot.ipxe,
     answer.toml, and preseed.cfg so the seed stack gets real values, not
-    placeholder strings.
+    placeholder strings. iso_path is the resolved cached ISO — its filename
+    is substituted into boot.ipxe so the boot script references the real file.
     """
     target = cfg.get("target", {})
     interface = cfg["provisioning_interface"]
     seed_ip = cfg.get("seed_ip") or _get_interface_ip(interface) or "192.168.100.1"
+    os_name = target.get("os", "")
+
+    # Resolve the real ISO filename for the boot script.
+    # The other OS slot gets a placeholder so safe_substitute leaves it alone.
+    if iso_path:
+        proxmox_iso = iso_path.name if os_name == "proxmox-ve" else "proxmox-ve-not-cached.iso"
+        ubuntu_iso  = iso_path.name if os_name == "ubuntu-server" else "ubuntu-server-not-cached.iso"
+    else:
+        proxmox_iso = "proxmox-ve-not-cached.iso"
+        ubuntu_iso  = "ubuntu-server-not-cached.iso"
 
     subs = {
         "PROVISIONING_INTERFACE": interface,
@@ -125,6 +136,8 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
         "DHCP_LEASE_TIME": cfg.get("dhcp_lease_time", "12h"),
         "SEED_IP": seed_ip,
         "NGINX_IP": seed_ip,
+        "PROXMOX_ISO": proxmox_iso,
+        "UBUNTU_ISO": ubuntu_iso,
         "TARGET_HOSTNAME": target.get("hostname", "node-01"),
         "TARGET_DOMAIN": target.get("domain", "local"),
         "TARGET_IP": target.get("ip", ""),
@@ -219,7 +232,7 @@ def deploy(
     # Render all config templates into ./run/ before compose starts.
     run_dir = config.parent / "run"
     typer.echo("Preparing seed stack config ...")
-    _render_templates(cfg, run_dir)
+    _render_templates(cfg, run_dir, iso_path=iso_path)
 
     typer.echo("Starting seed stack ...")
     _run_compose(cfg, config.parent, iso_path, up=True)
