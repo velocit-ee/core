@@ -1,0 +1,282 @@
+"""Interactive setup wizard — builds vme-config.yml through guided prompts.
+
+No YAML knowledge required. Detects network interfaces, suggests defaults,
+and writes a ready-to-use config file.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+
+# ---------------------------------------------------------------------------
+# Terminal helpers
+# ---------------------------------------------------------------------------
+
+def _line(char: str = "─", width: int = 54) -> str:
+    return char * width
+
+def _header(title: str) -> None:
+    print()
+    print(_line("═"))
+    print(f"  {title}")
+    print(_line("═"))
+    print()
+
+def _step(n: int, total: int, title: str) -> None:
+    print()
+    print(_line())
+    print(f"  Step {n}/{total} — {title}")
+    print(_line())
+    print()
+
+def _ask(prompt: str, default: str = "") -> str:
+    """Prompt the user for input, returning default on empty enter."""
+    hint = f" [{default}]" if default else ""
+    try:
+        raw = input(f"  {prompt}{hint}: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\n\nSetup cancelled.")
+        raise SystemExit(0)
+    return raw if raw else default
+
+def _ask_choice(prompt: str, options: list[str], default: int = 1) -> int:
+    """Present a numbered list and return the 1-based index chosen."""
+    for i, opt in enumerate(options, 1):
+        print(f"    [{i}]  {opt}")
+    print()
+    while True:
+        raw = _ask(prompt, str(default))
+        try:
+            choice = int(raw)
+            if 1 <= choice <= len(options):
+                return choice
+        except ValueError:
+            pass
+        print(f"  Please enter a number between 1 and {len(options)}.")
+
+def _ask_yes(prompt: str, default: bool = True) -> bool:
+    """Yes/no prompt. Returns bool."""
+    hint = "Y/n" if default else "y/N"
+    raw = _ask(prompt, hint).lower()
+    if raw in ("y/n", "y", "yes", ""):
+        return default if raw == "" else True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Network interface detection
+# ---------------------------------------------------------------------------
+
+@dataclass
+class NetworkInterface:
+    """Detected network interface."""
+    name: str
+    ip: Optional[str]
+    connected: bool
+
+    def label(self) -> str:
+        ip_str = self.ip if self.ip else "no IP"
+        conn = "connected" if self.connected else "not connected"
+        return f"{self.name:<12} {ip_str:<18} ({conn})"
+
+
+def _detect_interfaces() -> list[NetworkInterface]:
+    """Parse `ip addr` output to find usable network interfaces.
+
+    Filters out loopback, Docker bridges, and virtual interfaces.
+    """
+    try:
+        result = subprocess.run(
+            ["ip", "addr"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        output = result.stdout
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+    ifaces: list[NetworkInterface] = []
+    current_name: Optional[str] = None
+    current_ip: Optional[str] = None
+    current_connected = False
+
+    skip_prefixes = ("lo", "docker", "br-", "veth", "virbr", "tun", "tap", "dummy")
+
+    for line in output.splitlines():
+        # New interface block: "2: eth0: <FLAGS> ..."
+        m = re.match(r"^\d+: (\S+):", line)
+        if m:
+            if current_name and not any(current_name.startswith(p) for p in skip_prefixes):
+                ifaces.append(NetworkInterface(current_name, current_ip, current_connected))
+            current_name = m.group(1).rstrip("@").split("@")[0]
+            current_ip = None
+            current_connected = "LOWER_UP" in line
+
+        # IPv4 address line: "    inet 192.168.1.5/24 ..."
+        m = re.match(r"^\s+inet (\d+\.\d+\.\d+\.\d+)/", line)
+        if m and current_name:
+            current_ip = m.group(1)
+
+    if current_name and not any(current_name.startswith(p) for p in skip_prefixes):
+        ifaces.append(NetworkInterface(current_name, current_ip, current_connected))
+
+    return ifaces
+
+
+def _get_interface_ip(name: str) -> Optional[str]:
+    """Return the current IPv4 address on *name*, or None."""
+    for iface in _detect_interfaces():
+        if iface.name == name:
+            return iface.ip
+    return None
+
+
+def _find_ssh_key() -> Optional[str]:
+    """Return the first SSH public key found in ~/.ssh/, or None."""
+    candidates = [
+        Path.home() / ".ssh" / "id_ed25519.pub",
+        Path.home() / ".ssh" / "id_rsa.pub",
+        Path.home() / ".ssh" / "id_ecdsa.pub",
+    ]
+    for path in candidates:
+        if path.exists():
+            content = path.read_text().strip()
+            if content:
+                return content
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Wizard
+# ---------------------------------------------------------------------------
+
+def run(config_path: Path) -> None:
+    """Run the interactive setup wizard and write *config_path*."""
+
+    _header("VME Setup")
+
+    print("  This wizard builds your config file through a few simple questions.")
+    print("  Press Enter to accept the suggested value shown in [brackets].")
+
+    # -------------------------------------------------------------------------
+    # Step 1: provisioning interface
+    # -------------------------------------------------------------------------
+    _step(1, 4, "Provisioning network")
+
+    print("  Detected network interfaces:\n")
+    ifaces = _detect_interfaces()
+
+    if not ifaces:
+        print("  [!] Could not detect network interfaces automatically.")
+        print("      Run `ip link` to find your interface name.\n")
+        interface = _ask("Interface name (e.g. eth1)")
+    else:
+        choice = _ask_choice(
+            "Which interface is connected to your provisioning switch?",
+            [i.label() for i in ifaces],
+            default=next(
+                (n + 1 for n, i in enumerate(ifaces) if not i.ip and i.connected),
+                1,
+            ),
+        )
+        interface = ifaces[choice - 1].name
+
+    existing_ip = _get_interface_ip(interface)
+    if existing_ip:
+        print(f"\n  {interface} already has IP {existing_ip}.")
+        seed_ip = existing_ip
+    else:
+        print(f"\n  {interface} has no IP address.")
+        print("  VME needs an IP on this interface so target machines can reach the seed stack.")
+        seed_ip = _ask("Seed machine IP on this interface", "192.168.100.1")
+
+    dhcp_start = _ask("First IP to hand out to target machines", "192.168.100.100")
+    dhcp_end   = _ask("Last IP in that range",                  "192.168.100.200")
+
+    # -------------------------------------------------------------------------
+    # Step 2: target machine
+    # -------------------------------------------------------------------------
+    _step(2, 4, "Target machine")
+
+    os_choice = _ask_choice(
+        "Which OS do you want to install?",
+        ["Proxmox VE", "Ubuntu Server"],
+        default=1,
+    )
+    os_name = "proxmox-ve" if os_choice == 1 else "ubuntu-server"
+
+    hostname = _ask("Hostname for this machine", "node-01")
+    target_ip = _ask("Fixed IP address for the installed OS", "192.168.100.10")
+    gateway   = _ask("Gateway for the installed OS", seed_ip)
+    dns       = _ask("DNS server", "8.8.8.8")
+    disk      = _ask("Install disk on the target machine", "/dev/sda")
+
+    # -------------------------------------------------------------------------
+    # Step 3: SSH key
+    # -------------------------------------------------------------------------
+    _step(3, 4, "SSH access")
+
+    found_key = _find_ssh_key()
+    if found_key:
+        short = found_key[:60] + "..." if len(found_key) > 60 else found_key
+        print(f"  Found: {short}\n")
+        use_found = _ask_yes("Use this key?", default=True)
+        ssh_key = found_key if use_found else _ask("Paste your SSH public key")
+    else:
+        print("  No SSH key found in ~/.ssh/")
+        print("  Generate one with: ssh-keygen -t ed25519\n")
+        ssh_key = _ask("Paste your SSH public key")
+
+    if not ssh_key:
+        print("\n  [!] No SSH key provided. You will not be able to log in after provisioning.")
+        print("      You can re-run `vme setup` to add one later.\n")
+
+    # -------------------------------------------------------------------------
+    # Step 4: write config
+    # -------------------------------------------------------------------------
+    _step(4, 4, "Saving config")
+
+    # Derive /prefix length from a /24 default; keep it simple for now.
+    prefix = "24"
+
+    config = {
+        "provisioning_interface": interface,
+        "seed_ip": seed_ip,
+        "dhcp_range_start": dhcp_start,
+        "dhcp_range_end": dhcp_end,
+        "dhcp_lease_time": "12h",
+        "target": {
+            "hostname": hostname,
+            "ip": target_ip,
+            "prefix": prefix,
+            "gateway": gateway,
+            "netmask": "255.255.255.0",
+            "dns": dns,
+            "os": os_name,
+            "disk": disk,
+            "ssh_public_key": ssh_key,
+        },
+    }
+
+    import yaml
+    with open(config_path, "w") as fh:
+        yaml.dump(config, fh, default_flow_style=False, allow_unicode=True)
+
+    print(f"  Config written to {config_path}")
+
+    print()
+    print(_line("═"))
+    print("  Setup complete.")
+    print()
+    print("  Next steps:")
+    print("    1. Power off the target machine.")
+    print("    2. Set it to network-boot (PXE) in its BIOS/UEFI settings.")
+    print("    3. Run:  vme deploy")
+    print(_line("═"))
+    print()

@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import re
+import shutil
 import subprocess
-import sys
+import tempfile
 from pathlib import Path
+from string import Template
 from typing import Optional
 
 import typer
@@ -14,6 +17,7 @@ import yaml
 from . import preflight as pf
 from . import manifest as mf
 from . import images as img
+from . import setup as wizard
 
 app = typer.Typer(
     name="vme",
@@ -24,9 +28,11 @@ images_app = typer.Typer(help="Manage cached OS images.")
 app.add_typer(images_app, name="images")
 
 _CONFIG_DEFAULT = Path("vme-config.yml")
+_REPO_ROOT = Path(__file__).parent.parent
+
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Config helpers
 # ---------------------------------------------------------------------------
 
 
@@ -35,7 +41,7 @@ def _load_config(config_path: Path) -> dict:
     if not config_path.exists():
         typer.echo(
             f"[error] Config file not found: {config_path}\n"
-            "Copy vme-config.example.yml to vme-config.yml and fill in your values.",
+            "Run 'vme setup' to create one.",
             err=True,
         )
         raise typer.Exit(1)
@@ -59,8 +65,107 @@ def _print_preflight(report: pf.PreflightReport) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Network helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_interface_ip(interface: str) -> Optional[str]:
+    """Return the current IPv4 address on *interface*, or None."""
+    try:
+        result = subprocess.run(
+            ["ip", "addr", "show", interface],
+            capture_output=True, text=True, timeout=5,
+        )
+        m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/", result.stdout)
+        return m.group(1) if m else None
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+
+def _assign_ip(interface: str, ip: str) -> None:
+    """Assign *ip*/24 to *interface* if it has no address yet."""
+    existing = _get_interface_ip(interface)
+    if existing:
+        return
+    typer.echo(f"  Assigning {ip}/24 to {interface} ...")
+    result = subprocess.run(
+        ["sudo", "ip", "addr", "add", f"{ip}/24", "dev", interface],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        typer.echo(
+            f"[error] Could not assign IP to {interface}:\n{result.stderr}\n"
+            f"Run manually: sudo ip addr add {ip}/24 dev {interface}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    subprocess.run(["sudo", "ip", "link", "set", interface, "up"], capture_output=True)
+
+
+# ---------------------------------------------------------------------------
+# Template rendering
+# ---------------------------------------------------------------------------
+
+
+def _render_templates(cfg: dict, run_dir: Path) -> None:
+    """Render all config templates into *run_dir* before compose starts.
+
+    Substitutes values from vme-config.yml into dnsmasq.conf, boot.ipxe,
+    answer.toml, and preseed.cfg so the seed stack gets real values, not
+    placeholder strings.
+    """
+    target = cfg.get("target", {})
+    interface = cfg["provisioning_interface"]
+    seed_ip = cfg.get("seed_ip") or _get_interface_ip(interface) or "192.168.100.1"
+
+    subs = {
+        "PROVISIONING_INTERFACE": interface,
+        "DHCP_RANGE_START": cfg["dhcp_range_start"],
+        "DHCP_RANGE_END": cfg["dhcp_range_end"],
+        "DHCP_LEASE_TIME": cfg.get("dhcp_lease_time", "12h"),
+        "SEED_IP": seed_ip,
+        "NGINX_IP": seed_ip,
+        "TARGET_HOSTNAME": target.get("hostname", "node-01"),
+        "TARGET_DOMAIN": target.get("domain", "local"),
+        "TARGET_IP": target.get("ip", ""),
+        "TARGET_PREFIX": target.get("prefix", "24"),
+        "TARGET_GATEWAY": target.get("gateway", ""),
+        "TARGET_NETMASK": target.get("netmask", "255.255.255.0"),
+        "TARGET_DNS": target.get("dns", "8.8.8.8"),
+        "TARGET_DISK": target.get("disk", "/dev/sda"),
+        "TARGET_NIC": "eth0",
+        "TARGET_SSH_PUBLIC_KEY": target.get("ssh_public_key", ""),
+        "TARGET_ROOT_PASSWORD": target.get("root_password", "changeme"),
+        "TARGET_EMAIL": target.get("email", "root@localhost"),
+        "TARGET_PASSWORD_HASH": target.get("password_hash", "$6$rounds=4096$placeholder"),
+    }
+
+    templates = {
+        _REPO_ROOT / "seed" / "dnsmasq" / "dnsmasq.conf": run_dir / "dnsmasq" / "dnsmasq.conf",
+        _REPO_ROOT / "seed" / "ipxe" / "boot.ipxe":        run_dir / "ipxe" / "boot.ipxe",
+        _REPO_ROOT / "targets" / "proxmox" / "answer.toml": run_dir / "proxmox" / "answer.toml",
+        _REPO_ROOT / "targets" / "ubuntu" / "preseed.cfg":  run_dir / "cloud-init" / "user-data",
+        _REPO_ROOT / "targets" / "ubuntu" / "meta-data":    run_dir / "cloud-init" / "meta-data",
+    }
+
+    for src, dest in templates.items():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        raw = src.read_text()
+        rendered = Template(raw).safe_substitute(subs)
+        dest.write_text(rendered)
+
+
+# ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
+
+
+@app.command()
+def setup(
+    config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to write vme-config.yml"),
+) -> None:
+    """Guided setup wizard — creates your config file interactively."""
+    wizard.run(config)
 
 
 @app.command()
@@ -95,6 +200,13 @@ def deploy(
             raise typer.Exit(1)
         typer.echo("Pre-flight passed.\n")
 
+    # Ensure the provisioning interface has an IP.
+    interface = cfg.get("provisioning_interface", "")
+    seed_ip = cfg.get("seed_ip", "192.168.100.1")
+    if interface:
+        _assign_ip(interface, seed_ip)
+
+    # Download / verify the OS image.
     os_name: str = cfg.get("target", {}).get("os", "")
     typer.echo(f"Ensuring {os_name} image is cached ...")
     try:
@@ -104,19 +216,24 @@ def deploy(
         typer.echo(f"[error] {exc}", err=True)
         raise typer.Exit(1)
 
+    # Render all config templates into ./run/ before compose starts.
+    run_dir = config.parent / "run"
+    typer.echo("Preparing seed stack config ...")
+    _render_templates(cfg, run_dir)
+
     typer.echo("Starting seed stack ...")
-    _run_compose(cfg, config.parent, up=True)
+    _run_compose(cfg, config.parent, iso_path, up=True)
 
     typer.echo("\nSeed stack is running.")
-    typer.echo("Power on the target machine and wait for it to PXE boot.")
-    typer.echo("Press Ctrl+C to stop the seed stack when provisioning is complete.")
+    typer.echo("Power on the target machine now. It will PXE boot and install automatically.")
+    typer.echo("Press Ctrl+C here when provisioning is complete to stop the seed stack.\n")
 
     try:
         _compose_logs(config.parent)
     except KeyboardInterrupt:
         typer.echo("\nStopping seed stack ...")
-        _run_compose(cfg, config.parent, up=False)
-        typer.echo("Seed stack stopped.")
+        _run_compose(cfg, config.parent, iso_path, up=False)
+        typer.echo("Done.")
 
 
 @app.command()
@@ -160,10 +277,7 @@ def images_list(
 
 @images_app.command("pull")
 def images_pull(
-    os_name: str = typer.Argument(
-        ...,
-        help="OS to pre-cache: 'proxmox-ve' or 'ubuntu-server'",
-    ),
+    os_name: str = typer.Argument(..., help="OS to pre-cache: 'proxmox-ve' or 'ubuntu-server'"),
     config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to vme-config.yml"),
 ) -> None:
     """Pre-cache an OS image before deployment."""
@@ -192,17 +306,34 @@ def images_clean(
 
 
 # ---------------------------------------------------------------------------
-# Internal Docker Compose helpers
+# Docker Compose helpers
 # ---------------------------------------------------------------------------
 
 
-def _run_compose(cfg: dict, cwd: Path, *, up: bool) -> None:
-    """Start or stop the Docker Compose seed stack."""
+def _run_compose(cfg: dict, cwd: Path, iso_path: Optional[Path] = None, *, up: bool) -> None:
+    """Start or stop the Docker Compose seed stack, passing required env vars."""
+    interface = cfg.get("provisioning_interface", "")
+    seed_ip = cfg.get("seed_ip") or _get_interface_ip(interface) or "192.168.100.1"
+    cache_dir = str(img.cache_dir_for(cfg))
+
+    env_vars = {
+        "PROVISIONING_INTERFACE": interface,
+        "DHCP_RANGE_START": str(cfg.get("dhcp_range_start", "")),
+        "DHCP_RANGE_END": str(cfg.get("dhcp_range_end", "")),
+        "DHCP_LEASE_TIME": str(cfg.get("dhcp_lease_time", "12h")),
+        "SEED_IP": seed_ip,
+        "IMAGE_CACHE_DIR": cache_dir,
+    }
+
+    import os
+    compose_env = {**os.environ, **env_vars}
+
     if up:
         cmd = ["docker", "compose", "up", "-d", "--build"]
     else:
         cmd = ["docker", "compose", "down"]
-    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+
+    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=compose_env)
     if result.returncode != 0:
         typer.echo(f"[error] docker compose failed:\n{result.stderr}", err=True)
         raise typer.Exit(1)
