@@ -1,4 +1,6 @@
 #!ipxe
-# Minimal embedded bootstrap — chains to the rendered boot script on nginx.
-# ${next-server} is set automatically by DHCP to the seed machine's IP.
+# When loaded via undionly.kpxe, iPXE inherits the BIOS UNDI stack which only
+# supports UDP/TFTP. Issuing dhcp here initialises iPXE's own TCP/IP stack so
+# that the subsequent HTTP fetch works. ${next-server} is the DHCP siaddr.
+dhcp
 chain http://${next-server}/ipxe/boot.ipxe
