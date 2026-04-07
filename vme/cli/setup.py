@@ -137,6 +137,77 @@ def _get_interface_ip(name: str) -> Optional[str]:
     return None
 
 
+def _configure_firewall(interface: str) -> None:
+    """Check UFW state and open ports VME requires on *interface*.
+
+    Ports needed:
+      67/udp  — DHCP (target machines request an IP)
+      69/udp  — TFTP (target machines download iPXE)
+      80/tcp  — HTTP (iPXE fetches boot script and OS image from nginx)
+
+    Silently skips if UFW is not installed or not active.
+    """
+    # Check if ufw is available.
+    try:
+        status = subprocess.run(
+            ["sudo", "ufw", "status"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return  # ufw not installed — nothing to do
+
+    if "Status: active" not in status.stdout:
+        return  # ufw installed but inactive — no rules needed
+
+    out = status.stdout
+
+    # Determine which ports are missing.
+    iface_blanket = f"on {interface}" in out
+    missing: list[tuple[str, str, str]] = []
+
+    if not iface_blanket:
+        if ":67" not in out and "67/udp" not in out:
+            missing.append(("67", "udp", "DHCP"))
+        if ":69" not in out and "69/udp" not in out:
+            missing.append(("69", "udp", "TFTP"))
+        if ":80" not in out and "80/tcp" not in out and "Nginx" not in out:
+            missing.append(("80", "tcp", "HTTP"))
+
+    if not missing:
+        print(f"\n  Firewall: required ports already open on {interface}.")
+        return
+
+    print(f"\n  UFW is active. The following ports need to be opened on {interface}:")
+    for port, proto, service in missing:
+        print(f"    {port}/{proto}  ({service})")
+
+    open_now = _ask_yes("Open these ports now?", default=True)
+    if not open_now:
+        print("\n  Skipped. Add the rules manually before running 'vme deploy':")
+        for port, proto, _ in missing:
+            print(f"    sudo ufw allow in on {interface} to any port {port} proto {proto}")
+        return
+
+    all_ok = True
+    for port, proto, service in missing:
+        result = subprocess.run(
+            ["sudo", "ufw", "allow", "in", "on", interface, "to", "any",
+             "port", port, "proto", proto],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            print(f"  Opened {port}/{proto} ({service}).")
+        else:
+            print(f"  [!] Could not open {port}/{proto}: {result.stderr.strip()}")
+            all_ok = False
+
+    if all_ok:
+        subprocess.run(["sudo", "ufw", "reload"], capture_output=True)
+        print(f"  Firewall updated.")
+    else:
+        print(f"  Some rules may need to be added manually.")
+
+
 def _find_ssh_key() -> Optional[str]:
     """Return the first SSH public key found in ~/.ssh/, or None."""
     candidates = [
@@ -198,6 +269,8 @@ def run(config_path: Path) -> None:
 
     dhcp_start = _ask("First IP to hand out to target machines", "192.168.100.100")
     dhcp_end   = _ask("Last IP in that range",                  "192.168.100.200")
+
+    _configure_firewall(interface)
 
     # -------------------------------------------------------------------------
     # Step 2: target machine
