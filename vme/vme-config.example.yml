@@ -1,29 +1,46 @@
-# VME configuration file — copy to vme-config.yml and edit before deploying.
+# VME configuration file — copy to vme-config.yml and fill in your values.
+# All fields shown here are recognised by `vme deploy`.
+# The wizard (vme setup) writes this file for you interactively.
+
+# ── Seed machine ────────────────────────────────────────────────────────────
 
 # Network interface on the seed machine connected to the provisioning network.
-provisioning_interface: eth0
+provisioning_interface: eth1
 
-# DHCP range served to PXE clients.
+# IP assigned to the provisioning interface on the seed machine.
+# Must be on the same subnet as dhcp_range_start/end.
+# VME assigns this automatically if the interface has no IP yet.
+seed_ip: 192.168.100.1
+
+# DHCP range handed out to PXE clients.
 dhcp_range_start: 192.168.100.100
-dhcp_range_end: 192.168.100.200
-dhcp_lease_time: 12h
+dhcp_range_end:   192.168.100.200
+dhcp_lease_time:  12h
 
-# Local directory where OS images are cached.
+# Where OS images are cached on the seed machine.
 # Defaults to ~/.velocitee/cache/images/ if omitted.
 # image_cache_dir: ~/.velocitee/cache/images/
 
-# Target machine configuration.
+# ── Target machine ───────────────────────────────────────────────────────────
+
 target:
   hostname: node-01
-  ip: 192.168.100.10
+  os: proxmox-ve        # proxmox-ve | ubuntu-server
+
+  # Static IP configured inside the installed OS.
+  ip:      192.168.100.10
+  prefix:  24            # subnet prefix length
   gateway: 192.168.100.1
   netmask: 255.255.255.0
-  dns: 8.8.8.8
-  os: proxmox-ve          # proxmox-ve | ubuntu-server
-  disk: /dev/sda          # install target disk
+  dns:     8.8.8.8
+
+  # Disk to install to on the target machine.
+  disk: /dev/sda
 
   # SSH public key injected into the provisioned machine.
   ssh_public_key: "ssh-ed25519 AAAA... user@host"
+
+# ── Output ───────────────────────────────────────────────────────────────────
 
 # Where VME writes the handoff manifest after a successful deployment.
 manifest_output_dir: ./manifests/output/
