@@ -301,7 +301,7 @@ sudo systemctl stop tftpd-hpa
 ```
 
 **The pre-flight check fails with "ufw is active but port 67 or port 80 may be blocked"**
-Run the fix commands shown in the preflight output, then retry `vme deploy`. VME needs port 67/udp (DHCP) so target machines get an IP, and port 80/tcp (HTTP) so iPXE can load the boot menu and OS image.
+The setup wizard normally opens these ports automatically. If you skipped that step or added a new interface, run the commands shown in the preflight output, then retry `vme deploy`. VME needs port 67/udp (DHCP) so target machines get an IP, port 69/udp (TFTP) for the initial iPXE binary, and port 80/tcp (HTTP) so iPXE can fetch the boot menu and OS image.
 
 **The target machine shows a "No boot device" or "PXE-E53" error**
 The target is not reaching VME. Check that:
