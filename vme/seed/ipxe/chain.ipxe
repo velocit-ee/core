@@ -1,0 +1,4 @@
+#!ipxe
+# Minimal embedded bootstrap — chains to the rendered boot script on nginx.
+# ${next-server} is set automatically by DHCP to the seed machine's IP.
+chain http://${next-server}/ipxe/boot.ipxe

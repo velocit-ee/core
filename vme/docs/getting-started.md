@@ -300,8 +300,8 @@ Another TFTP server (`tftpd-hpa` or `in.tftpd`) is running on the seed machine. 
 sudo systemctl stop tftpd-hpa
 ```
 
-**The pre-flight check fails with "ufw is active but port 67 may be blocked"**
-Run the fix command shown in the preflight output, then retry `vme deploy`.
+**The pre-flight check fails with "ufw is active but port 67 or port 80 may be blocked"**
+Run the fix commands shown in the preflight output, then retry `vme deploy`. VME needs port 67/udp (DHCP) so target machines get an IP, and port 80/tcp (HTTP) so iPXE can load the boot menu and OS image.
 
 **The target machine shows a "No boot device" or "PXE-E53" error**
 The target is not reaching VME. Check that:

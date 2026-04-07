@@ -11,6 +11,8 @@ from urllib.parse import urljoin
 
 import requests
 
+from .os_registry import OS_REGISTRY
+
 _DEFAULT_CACHE = Path("~/.velocitee/cache/images/").expanduser()
 
 # Public release index URLs — no version numbers hardcoded here.
@@ -213,18 +215,16 @@ def ensure_image(os_name: str, config: dict) -> Path:
     Downloads and verifies if not already present. Returns the local path.
     Raises RuntimeError with a clear message on any failure.
     """
+    if os_name not in OS_REGISTRY:
+        known = ", ".join(f"'{s}'" for s in OS_REGISTRY)
+        raise ValueError(f"Unknown OS '{os_name}'. Must be one of: {known}.")
+
     cache = cache_dir_for(config)
     cache.mkdir(parents=True, exist_ok=True)
 
     # Check if a matching ISO is already cached before hitting the network.
-    patterns = {
-        "proxmox-ve": "proxmox-ve_*.iso",
-        "ubuntu-server": "ubuntu-*-live-server-amd64.iso",
-    }
-    if os_name not in patterns:
-        raise ValueError(f"Unknown OS '{os_name}'. Must be 'proxmox-ve' or 'ubuntu-server'.")
-
-    existing = sorted(cache.glob(patterns[os_name]))
+    pattern = OS_REGISTRY[os_name]["iso_pattern"]
+    existing = sorted(cache.glob(pattern))
     if existing:
         cached = existing[-1]  # newest by filename sort
         print(f"  Found cached image: {cached.name}")
@@ -232,11 +232,10 @@ def ensure_image(os_name: str, config: dict) -> Path:
 
     if os_name == "proxmox-ve":
         version, iso_url, sha256_url = _resolve_proxmox_latest()
-        filename = iso_url.rsplit("/", 1)[-1]
     else:
         version, iso_url, sha256_url = _resolve_ubuntu_latest_lts()
-        filename = iso_url.rsplit("/", 1)[-1]
 
+    filename = iso_url.rsplit("/", 1)[-1]
     dest = cache / filename
 
     if dest.exists():
@@ -271,30 +270,51 @@ def ensure_image(os_name: str, config: dict) -> Path:
 
 
 def list_cached(config: dict) -> list[dict]:
-    """Return a list of cached image dicts with name, path, size_mb."""
+    """Return a list of cached image dicts with filename, path, size_mb, os."""
     cache = cache_dir_for(config)
     if not cache.exists():
         return []
+
+    # Build filename → os_slug map from registry patterns.
+    os_map: dict[str, str] = {}
+    for slug, meta in OS_REGISTRY.items():
+        for f in cache.glob(meta["iso_pattern"]):
+            os_map[f.name] = slug
+
     images = []
     for f in sorted(cache.glob("*.iso")):
         images.append({
             "filename": f.name,
             "path": str(f),
             "size_mb": round(f.stat().st_size / (1024**2), 1),
+            "os": os_map.get(f.name, "unknown"),
         })
     return images
 
 
-def clean_cache(config: dict) -> int:
-    """Delete all cached images. Returns number of files removed."""
+def clean_cache(config: dict, os_name: str | None = None) -> int:
+    """Delete cached images. If *os_name* is given, only delete that OS.
+
+    Returns the number of files removed.
+    """
     cache = cache_dir_for(config)
     if not cache.exists():
         return 0
+
+    if os_name:
+        if os_name not in OS_REGISTRY:
+            known = ", ".join(f"'{s}'" for s in OS_REGISTRY)
+            raise ValueError(f"Unknown OS '{os_name}'. Must be one of: {known}.")
+        iso_pattern = OS_REGISTRY[os_name]["iso_pattern"]
+        # Derive .tmp pattern from the ISO glob.
+        tmp_pattern = iso_pattern.rsplit(".", 1)[0] + "*.tmp"
+        globs = [iso_pattern, tmp_pattern]
+    else:
+        globs = ["*.iso", "*.tmp"]
+
     count = 0
-    for f in cache.glob("*.iso"):
-        f.unlink()
-        count += 1
-    for f in cache.glob("*.tmp"):
-        f.unlink()
-        count += 1
+    for pattern in globs:
+        for f in cache.glob(pattern):
+            f.unlink()
+            count += 1
     return count

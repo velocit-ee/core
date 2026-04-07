@@ -30,8 +30,10 @@ ARG IPXE_VERSION=v1.21.1
 WORKDIR /build
 RUN git clone --depth 1 --branch ${IPXE_VERSION} https://github.com/ipxe/ipxe.git .
 
-# Embed the boot script so iPXE fetches it from our nginx on DHCP-provided IP.
-COPY boot.ipxe /build/src/boot.ipxe
+# Embed a minimal chainloader that fetches the rendered boot.ipxe from nginx
+# at runtime using ${next-server} (DHCP siaddr — set to the seed machine IP).
+# boot.ipxe itself is rendered at deploy time and served over HTTP by nginx.
+COPY chain.ipxe /build/src/chain.ipxe
 
 WORKDIR /build/src
 
@@ -41,11 +43,11 @@ WORKDIR /build/src
 # Suppress them without touching the iPXE source.
 ENV EXTRA_CFLAGS="-Wno-error=array-bounds -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized -Wno-error=dangling-pointer"
 RUN if [ "${TARGETARCH}" = "arm64" ]; then \
-        CROSS_COMPILE=x86_64-linux-gnu- make bin/undionly.kpxe EMBED=boot.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
-        CROSS_COMPILE=x86_64-linux-gnu- make bin-x86_64-efi/ipxe.efi EMBED=boot.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
+        CROSS_COMPILE=x86_64-linux-gnu- make bin/undionly.kpxe EMBED=chain.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
+        CROSS_COMPILE=x86_64-linux-gnu- make bin-x86_64-efi/ipxe.efi EMBED=chain.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
     else \
-        make bin/undionly.kpxe EMBED=boot.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
-        make bin-x86_64-efi/ipxe.efi EMBED=boot.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
+        make bin/undionly.kpxe EMBED=chain.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
+        make bin-x86_64-efi/ipxe.efi EMBED=chain.ipxe -j$(nproc) EXTRA_CFLAGS="${EXTRA_CFLAGS}"; \
     fi
 
 # Collect outputs.
