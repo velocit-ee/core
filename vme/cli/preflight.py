@@ -12,6 +12,7 @@ from typing import Any
 import jsonschema
 import yaml
 
+from .os_registry import OS_REGISTRY
 
 VME_REQUIRED_DISK_GB = 20  # minimum free space for image cache
 
@@ -165,19 +166,39 @@ def check_no_conflicting_dhcp(interface: str) -> CheckResult:
 
 
 def check_firewall(interface: str) -> CheckResult:
-    """Warn if ufw is active and port 67 (DHCP) is not explicitly allowed."""
+    """Warn if ufw is active and VME ports are not explicitly allowed.
+
+    Checks both port 67/udp (DHCP) and port 80/tcp (HTTP — nginx ISO serving).
+    """
     try:
         ufw = subprocess.run(["sudo", "ufw", "status"], capture_output=True, text=True, timeout=5)
         if "Status: active" not in ufw.stdout:
             return CheckResult(name="firewall", passed=True, detail="ufw is inactive.")
-        if ":67" in ufw.stdout or "67/udp" in ufw.stdout or f"on {interface}" in ufw.stdout:
-            return CheckResult(name="firewall", passed=True, detail="ufw active; DHCP port appears open.")
-        return CheckResult(
-            name="firewall",
-            passed=False,
-            detail="ufw is active but port 67 (DHCP) may be blocked — target VMs won't get an IP.",
-            fix=f"Run: sudo ufw allow in on {interface} to any port 67 proto udp",
-        )
+
+        out = ufw.stdout
+        iface_rule = f"on {interface}" in out
+
+        dhcp_open = iface_rule or ":67" in out or "67/udp" in out
+        http_open = iface_rule or ":80" in out or "80/tcp" in out or "Nginx" in out
+
+        if not dhcp_open:
+            return CheckResult(
+                name="firewall",
+                passed=False,
+                detail="ufw is active but port 67/udp (DHCP) may be blocked — target machines won't get an IP.",
+                fix=(
+                    f"sudo ufw allow in on {interface} to any port 67 proto udp\n"
+                    f"  sudo ufw allow in on {interface} to any port 80 proto tcp"
+                ),
+            )
+        if not http_open:
+            return CheckResult(
+                name="firewall",
+                passed=False,
+                detail="ufw is active but port 80/tcp (HTTP) may be blocked — iPXE chainload and ISO serving will fail.",
+                fix=f"sudo ufw allow in on {interface} to any port 80 proto tcp",
+            )
+        return CheckResult(name="firewall", passed=True, detail="ufw active; DHCP and HTTP ports appear open.")
     except Exception:
         return CheckResult(name="firewall", passed=True, detail="Could not check firewall state.")
 
@@ -224,7 +245,7 @@ def check_config(config_path: Path) -> CheckResult:
 
     required_top = ["provisioning_interface", "dhcp_range_start", "dhcp_range_end", "target"]
     required_target = ["hostname", "ip", "gateway", "netmask", "os", "disk", "ssh_public_key"]
-    valid_os = {"proxmox-ve", "ubuntu-server"}
+    valid_os = set(OS_REGISTRY)
 
     for key in required_top:
         if key not in config:
@@ -250,7 +271,7 @@ def check_config(config_path: Path) -> CheckResult:
             name="config",
             passed=False,
             detail=f"Invalid target.os '{target.get('os')}'. Must be one of: {', '.join(sorted(valid_os))}",
-            fix="Set target.os to 'proxmox-ve' or 'ubuntu-server' in vme-config.yml.",
+            fix=f"Set target.os in vme-config.yml to one of: {', '.join(sorted(valid_os))}",
         )
 
     return CheckResult(name="config", passed=True, detail="Config file is valid.")

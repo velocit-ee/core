@@ -21,7 +21,7 @@ item proxmox   Proxmox VE (latest stable)
 item ubuntu    Ubuntu Server LTS (latest)
 item --gap --
 item exit      Exit (boot from local disk)
-choose --default proxmox --timeout 30 target || goto exit
+choose --default ${DEFAULT_OS} --timeout 30 target || goto exit
 
 goto ${target}
 
