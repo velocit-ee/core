@@ -162,7 +162,7 @@ def _generate_boot_ipxe(
                 (
                     f"imgargs vmlinuz initrd=initrd ip=dhcp"
                     f" url=${{nginx}}/images/{iso.name}"
-                    f" autoinstall ds=nocloud-net${{sc}}s=${{nginx}}/cloud-init/"
+                    f" autoinstall ds=nocloud-net${{sc:string}}s=${{nginx}}/cloud-init/"
                 ),
                 "boot || goto failed",
                 "",
