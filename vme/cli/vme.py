@@ -146,18 +146,37 @@ def _generate_boot_ipxe(
     ]
 
     for slug, key, label, iso in entries:
-        lines += [
-            f"# {'-' * 73}",
-            f":{key}",
-            f"echo Booting {label} ...",
-            f"echo Image: ${{nginx}}/images/{iso.name}",
-            "echo",
-            f"sanboot --no-describe ${{nginx}}/images/{iso.name} || goto failed",
-            "",
-        ]
+        meta = OS_REGISTRY.get(slug, {})
+        boot_method = meta.get("boot_method", "sanboot")
+
+        if boot_method == "kernel":
+            # Boot vmlinuz + initrd directly so we can pass url= and autoinstall params.
+            # The url= kernel arg tells the live initrd where to find the ISO (its squashfs root).
+            # ds=nocloud-net;s= tells cloud-init where to find user-data / meta-data.
+            lines += [
+                f":{key}",
+                f"echo Booting {label} ...",
+                f"kernel ${{nginx}}/boot/{slug}/vmlinuz",
+                f"initrd ${{nginx}}/boot/{slug}/initrd",
+                (
+                    f"imgargs vmlinuz initrd=initrd ip=dhcp"
+                    f" url=${{nginx}}/images/{iso.name}"
+                    f" autoinstall ds=nocloud-net;s=${{nginx}}/cloud-init/"
+                ),
+                "boot || goto failed",
+                "",
+            ]
+        else:
+            lines += [
+                f":{key}",
+                f"echo Booting {label} ...",
+                f"echo Image: ${{nginx}}/images/{iso.name}",
+                "echo",
+                f"sanboot --no-describe ${{nginx}}/images/{iso.name} || goto failed",
+                "",
+            ]
 
     lines += [
-        "# ---------------------------------------------------------------------------",
         ":exit",
         "echo Exiting iPXE — attempting local disk boot.",
         "exit 0",
@@ -177,6 +196,52 @@ def _generate_boot_ipxe(
     return "\n".join(lines)
 
 
+def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str) -> None:
+    """Mount an ISO and copy the kernel + initrd into boot_dir/slug/.
+
+    Ubuntu's live initrd needs to be booted directly (not via sanboot) so we
+    can pass url= and autoinstall params on the kernel cmdline. This extracts
+    the right files from the ISO at deploy time.
+    """
+    meta = OS_REGISTRY.get(slug, {})
+    kernel_rel = meta.get("kernel_path", "casper/vmlinuz")
+    initrd_rel  = meta.get("initrd_path", "casper/initrd")
+
+    dest = boot_dir / slug
+    vmlinuz = dest / "vmlinuz"
+    initrd  = dest / "initrd"
+
+    if vmlinuz.exists() and initrd.exists():
+        return  # already extracted from a previous run
+
+    dest.mkdir(parents=True, exist_ok=True)
+    mnt = Path("/tmp/vme-iso-mount")
+    mnt.mkdir(exist_ok=True)
+
+    typer.echo(f"  Extracting boot files from {iso_path.name} ...")
+    try:
+        result = subprocess.run(
+            ["sudo", "mount", "-o", "loop,ro", str(iso_path), str(mnt)],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Could not mount ISO: {result.stderr.strip()}")
+
+        src_vmlinuz = mnt / kernel_rel
+        src_initrd  = mnt / initrd_rel
+        if not src_vmlinuz.exists() or not src_initrd.exists():
+            raise RuntimeError(
+                f"Expected {kernel_rel} and {initrd_rel} inside the ISO but couldn't find them."
+            )
+
+        shutil.copy2(src_vmlinuz, vmlinuz)
+        shutil.copy2(src_initrd, initrd)
+        typer.echo(f"  Boot files extracted ({vmlinuz.stat().st_size // (1024**2)} MB kernel, "
+                   f"{initrd.stat().st_size // (1024**2)} MB initrd).")
+    finally:
+        subprocess.run(["sudo", "umount", str(mnt)], capture_output=True)
+
+
 def _render_templates(cfg: dict, run_dir: Path) -> None:
     target    = cfg.get("target", {})
     interface = cfg["provisioning_interface"]
@@ -185,6 +250,15 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
 
     cache_dir = img.cache_dir_for(cfg)
     entries   = cached_entries(cache_dir)
+
+    # For OSes that boot via kernel+initrd, extract those files from the ISO now
+    # so nginx can serve them. The mount point needs sudo because loop devices do.
+    boot_dir = run_dir / "boot"
+    for slug, _key, _label, iso_path in entries:
+        meta = OS_REGISTRY.get(slug, {})
+        if meta.get("boot_method") == "kernel":
+            _extract_boot_files(iso_path, boot_dir, slug)
+
     boot_ipxe = _generate_boot_ipxe(seed_ip, entries, default_slug=os_name)
     boot_dest = run_dir / "ipxe" / "boot.ipxe"
     boot_dest.parent.mkdir(parents=True, exist_ok=True)
