@@ -1,112 +1,59 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://velocit.ee/schemas/vme/manifest/1.0",
-  "title": "VME Handoff Manifest",
-  "description": "Structured handoff manifest produced by VME on successful provisioning.",
+  "$id": "https://velocit.ee/schemas/engine/manifest/1.0",
+  "title": "Velocitee Engine Manifest",
+  "description": "Shared manifest written by each engine and passed to the next. Each engine appends a timestamped record under 'engines'. The 'target' and 'access' sections are written once by VME and read by all subsequent engines.",
   "type": "object",
-  "required": [
-    "schema_version",
-    "vme_version",
-    "status",
-    "hostname",
-    "ip",
-    "os",
-    "os_version",
-    "hardware",
-    "ssh_host_key_fingerprint",
-    "deployed_at"
-  ],
+  "required": ["schema_version", "target", "access", "engines"],
   "properties": {
     "schema_version": {
       "type": "string",
       "const": "1.0",
-      "description": "Version of this manifest schema."
+      "description": "Schema version. Increment when breaking changes are made."
     },
-    "vme_version": {
-      "type": "string",
-      "description": "VME release that produced this manifest."
-    },
-    "status": {
-      "type": "string",
-      "enum": ["success", "failure"],
-      "description": "Deployment outcome."
-    },
-    "failure_reason": {
-      "type": "string",
-      "description": "Human-readable reason for failure. Required when status is 'failure'."
-    },
-    "hostname": {
-      "type": "string",
-      "description": "Provisioned hostname."
-    },
-    "ip": {
-      "type": "string",
-      "format": "ipv4",
-      "description": "Static IP assigned to the provisioned machine."
-    },
-    "os": {
-      "type": "string",
-      "enum": ["proxmox-ve", "ubuntu-server"],
-      "description": "Operating system installed."
-    },
-    "os_version": {
-      "type": "string",
-      "description": "Resolved version string (e.g. '8.2-1', '24.04')."
-    },
-    "hardware": {
+    "target": {
       "type": "object",
-      "required": ["cpu", "ram_mb", "disks", "nics"],
+      "description": "Physical machine identity and network config. Written by VME, read by all engines.",
+      "required": ["hostname", "ip", "os"],
+      "additionalProperties": true,
       "properties": {
-        "cpu": {
-          "type": "string",
-          "description": "CPU model string."
-        },
-        "ram_mb": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Total RAM in megabytes."
-        },
-        "disks": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["device", "size_gb"],
-            "properties": {
-              "device": { "type": "string" },
-              "size_gb": { "type": "number" }
-            }
-          }
-        },
-        "nics": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["name", "mac"],
-            "properties": {
-              "name": { "type": "string" },
-              "mac": {
-                "type": "string",
-                "pattern": "^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$"
-              }
-            }
-          }
-        }
+        "hostname":  { "type": "string" },
+        "ip":        { "type": "string", "description": "Static IP of the provisioned machine." },
+        "prefix":    { "type": "integer", "minimum": 0, "maximum": 32 },
+        "gateway":   { "type": "string" },
+        "dns":       { "type": "string" },
+        "disk":      { "type": "string", "description": "Primary disk device path (e.g. /dev/sda)." },
+        "os":        { "type": "string", "description": "OS slug from OS_REGISTRY (e.g. ubuntu-server)." },
+        "mac":       { "type": "string", "description": "MAC address observed during PXE boot." }
       }
     },
-    "ssh_host_key_fingerprint": {
-      "type": "string",
-      "description": "SHA256 fingerprint of the provisioned machine's SSH host key."
+    "access": {
+      "type": "object",
+      "description": "How subsequent engines (and operators) connect to the machine.",
+      "required": ["username", "ssh_public_key"],
+      "properties": {
+        "username":        { "type": "string" },
+        "ssh_public_key":  { "type": "string" },
+        "ssh_port":        { "type": "integer", "default": 22 }
+      }
     },
-    "deployed_at": {
-      "type": "string",
-      "format": "date-time",
-      "description": "ISO 8601 timestamp of deployment completion."
+    "engines": {
+      "type": "object",
+      "description": "Keyed by engine slug (vme, vne, vce, vae). Each engine appends its record here on completion.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status", "started_at"],
+        "properties": {
+          "status":           { "type": "string", "enum": ["success", "failure", "in_progress"] },
+          "version":          { "type": "string" },
+          "started_at":       { "type": "string", "format": "date-time" },
+          "completed_at":     { "type": "string", "format": "date-time" },
+          "duration_seconds": { "type": "number", "minimum": 0 },
+          "failure_reason":   { "type": "string" }
+        },
+        "additionalProperties": true
+      }
     }
   },
-  "if": {
-    "properties": { "status": { "const": "failure" } }
-  },
-  "then": {
-    "required": ["failure_reason"]
-  }
+  "additionalProperties": false
 }

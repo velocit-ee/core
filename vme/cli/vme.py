@@ -7,6 +7,8 @@ import os
 import re
 import shutil
 import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
 from typing import Optional
@@ -28,8 +30,12 @@ app = typer.Typer(
 images_app = typer.Typer(help="Manage cached OS images.")
 app.add_typer(images_app, name="images")
 
-_CONFIG_DEFAULT = Path("vme-config.yml")
-_REPO_ROOT = Path(__file__).parent.parent
+_CONFIG_DEFAULT  = Path("vme-config.yml")
+_REPO_ROOT       = Path(__file__).parent.parent
+_LOG_DIR         = Path("~/.velocitee/logs").expanduser()
+_MANIFEST_OUTDIR = _REPO_ROOT / "manifests" / "output"
+
+_LINE = "═" * 60
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +44,6 @@ _REPO_ROOT = Path(__file__).parent.parent
 
 
 def _load_config(config_path: Path) -> dict:
-    """Load and return the YAML config. Exits with a message on failure."""
     if not config_path.exists():
         typer.echo(
             f"[error] Config file not found: {config_path}\n"
@@ -55,7 +60,6 @@ def _load_config(config_path: Path) -> dict:
 
 
 def _print_preflight(report: pf.PreflightReport) -> None:
-    """Pretty-print a preflight report."""
     typer.echo()
     for result in report.results:
         icon = "  [pass]" if result.passed else "  [FAIL]"
@@ -72,7 +76,6 @@ def _print_preflight(report: pf.PreflightReport) -> None:
 
 
 def _get_interface_ip(interface: str) -> Optional[str]:
-    """Return the current IPv4 address on *interface*, or None."""
     try:
         result = subprocess.run(
             ["ip", "addr", "show", interface],
@@ -85,9 +88,7 @@ def _get_interface_ip(interface: str) -> Optional[str]:
 
 
 def _assign_ip(interface: str, ip: str) -> None:
-    """Assign *ip*/24 to *interface* if it has no address yet."""
-    existing = _get_interface_ip(interface)
-    if existing:
+    if _get_interface_ip(interface):
         return
     typer.echo(f"  Assigning {ip}/24 to {interface} ...")
     result = subprocess.run(
@@ -114,22 +115,13 @@ def _generate_boot_ipxe(
     entries: list[tuple[str, str, str, Path]],
     default_slug: str,
 ) -> str:
-    """Build a boot.ipxe script that only includes cached OSes in its menu.
-
-    entries: list of (slug, menu_key, label, iso_path) from cached_entries()
-    default_slug: OS slug to select automatically after the timeout
-    """
     if not entries:
-        # No images cached — show an error screen.
         return (
             "#!ipxe\n\n"
             f"set nginx http://{seed_ip}\n\n"
-            "echo\n"
-            "echo  No OS images are cached on the seed machine.\n"
+            "echo\necho  No OS images are cached on the seed machine.\n"
             "echo  Run: vme images pull <os-name>\n"
-            "echo\n"
-            "prompt --timeout 30\n"
-            "exit 1\n"
+            "echo\nprompt --timeout 30\nexit 1\n"
         )
 
     lines: list[str] = [
@@ -150,8 +142,7 @@ def _generate_boot_ipxe(
         "menu VME Provisioning Menu",
     ]
 
-    # Determine default menu_key.
-    default_key = entries[0][1]  # fallback: first cached OS
+    default_key = entries[0][1]
     for slug, key, label, _ in entries:
         if slug == default_slug:
             default_key = key
@@ -207,45 +198,38 @@ def _generate_boot_ipxe(
 
 
 def _render_templates(cfg: dict, run_dir: Path) -> None:
-    """Render all config templates into *run_dir* before compose starts.
-
-    boot.ipxe is generated dynamically from whatever ISOs are cached.
-    All other templates (dnsmasq.conf, preseed files) use safe_substitute.
-    """
-    target = cfg.get("target", {})
+    target    = cfg.get("target", {})
     interface = cfg["provisioning_interface"]
-    seed_ip = cfg.get("seed_ip") or _get_interface_ip(interface) or "192.168.100.1"
-    os_name = target.get("os", "")
+    seed_ip   = cfg.get("seed_ip") or _get_interface_ip(interface) or "192.168.100.1"
+    os_name   = target.get("os", "")
 
-    # Generate boot.ipxe — only list OSes that are actually cached.
     cache_dir = img.cache_dir_for(cfg)
-    entries = cached_entries(cache_dir)
+    entries   = cached_entries(cache_dir)
     boot_ipxe = _generate_boot_ipxe(seed_ip, entries, default_slug=os_name)
-    boot_ipxe_dest = run_dir / "ipxe" / "boot.ipxe"
-    boot_ipxe_dest.parent.mkdir(parents=True, exist_ok=True)
-    boot_ipxe_dest.write_text(boot_ipxe)
+    boot_dest = run_dir / "ipxe" / "boot.ipxe"
+    boot_dest.parent.mkdir(parents=True, exist_ok=True)
+    boot_dest.write_text(boot_ipxe)
 
-    # Render remaining templates via substitution.
     subs = {
         "PROVISIONING_INTERFACE": interface,
-        "DHCP_RANGE_START": cfg["dhcp_range_start"],
-        "DHCP_RANGE_END": cfg["dhcp_range_end"],
-        "DHCP_LEASE_TIME": cfg.get("dhcp_lease_time", "12h"),
-        "SEED_IP": seed_ip,
-        "TARGET_HOSTNAME": target.get("hostname", "node-01"),
-        "TARGET_DOMAIN": target.get("domain", "local"),
-        "TARGET_IP": target.get("ip", ""),
-        "TARGET_PREFIX": target.get("prefix", "24"),
-        "TARGET_GATEWAY": target.get("gateway", ""),
-        "TARGET_NETMASK": target.get("netmask", "255.255.255.0"),
-        "TARGET_DNS": target.get("dns", "8.8.8.8"),
-        "TARGET_DISK": target.get("disk", "/dev/sda"),
-        "TARGET_NIC": "eth0",
-        "TARGET_SSH_PUBLIC_KEY": target.get("ssh_public_key", ""),
-        "TARGET_TIMEZONE": target.get("timezone", "UTC"),
-        "TARGET_ROOT_PASSWORD": target.get("root_password", "changeme"),
-        "TARGET_EMAIL": target.get("email", "root@localhost"),
-        "TARGET_PASSWORD_HASH": target.get("password_hash", ""),
+        "DHCP_RANGE_START":       cfg["dhcp_range_start"],
+        "DHCP_RANGE_END":         cfg["dhcp_range_end"],
+        "DHCP_LEASE_TIME":        cfg.get("dhcp_lease_time", "12h"),
+        "SEED_IP":                seed_ip,
+        "TARGET_HOSTNAME":        target.get("hostname", "node-01"),
+        "TARGET_DOMAIN":          target.get("domain", "local"),
+        "TARGET_IP":              target.get("ip", ""),
+        "TARGET_PREFIX":          target.get("prefix", "24"),
+        "TARGET_GATEWAY":         target.get("gateway", ""),
+        "TARGET_NETMASK":         target.get("netmask", "255.255.255.0"),
+        "TARGET_DNS":             target.get("dns", "8.8.8.8"),
+        "TARGET_DISK":            target.get("disk", "/dev/sda"),
+        "TARGET_NIC":             "eth0",
+        "TARGET_TIMEZONE":        target.get("timezone", "UTC"),
+        "TARGET_SSH_PUBLIC_KEY":  target.get("ssh_public_key", ""),
+        "TARGET_ROOT_PASSWORD":   target.get("root_password", "changeme"),
+        "TARGET_EMAIL":           target.get("email", "root@localhost"),
+        "TARGET_PASSWORD_HASH":   target.get("password_hash", ""),
     }
 
     templates = {
@@ -259,8 +243,200 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
         if not src.exists():
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
-        rendered = Template(src.read_text()).safe_substitute(subs)
-        dest.write_text(rendered)
+        dest.write_text(Template(src.read_text()).safe_substitute(subs))
+
+
+# ---------------------------------------------------------------------------
+# Log streaming
+# ---------------------------------------------------------------------------
+
+# Events to surface in normal (non-verbose) mode.
+# Each entry: (regex, display_template, deduplicate)
+# display_template may reference named groups from the regex.
+_LOG_EVENTS = [
+    (re.compile(r'DHCPDISCOVER\(\S+\)\s+([\da-fA-F:]{17})'),
+     "Target discovered       MAC {1}", True),
+    (re.compile(r'DHCPACK\(\S+\)\s+(\d+\.\d+\.\d+\.\d+)\s+([\da-fA-F:]{17})'),
+     "DHCP lease granted      {1}  ({2})", True),
+    (re.compile(r'sent /tftp/undionly\.kpxe'),
+     "iPXE binary delivered   via TFTP", True),
+    (re.compile(r'"GET /ipxe/boot\.ipxe[^"]*" 200'),
+     "Boot menu loaded        via HTTP", True),
+    (re.compile(r'"GET /images/([^"]+\.iso)[^"]*" 206'),
+     "OS image streaming      {1}", True),
+    (re.compile(r'vme-provision-complete'),
+     None, False),  # handled specially — not printed here
+]
+
+
+def _format_event(pattern: re.Pattern, template: str, line: str) -> str | None:
+    m = pattern.search(line)
+    if not m:
+        return None
+    result = template
+    for i, g in enumerate(m.groups(), 1):
+        result = result.replace(f"{{{i}}}", g or "")
+    return result
+
+
+def _fmt_duration(seconds: float) -> str:
+    m, s = divmod(int(seconds), 60)
+    return f"{m}m {s:02d}s" if m else f"{s}s"
+
+
+def _stream_deploy_logs(
+    cwd: Path,
+    log_path: Path,
+    verbose: bool,
+) -> tuple[bool, str | None]:
+    """Stream compose logs. Returns (completed, mac_address).
+
+    Normal mode: show one line per key milestone, suppress noise.
+    Verbose mode: pass everything through.
+    Full logs always written to log_path for troubleshooting.
+    """
+    proc = subprocess.Popen(
+        ["docker", "compose", "logs", "-f", "--no-color"],
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    completed  = False
+    mac        = None
+    shown: set[str] = set()
+
+    try:
+        with open(log_path, "w") as log_fh:
+            for raw in proc.stdout:
+                log_fh.write(raw)
+                log_fh.flush()
+
+                if verbose:
+                    sys.stdout.write(raw)
+                    sys.stdout.flush()
+                else:
+                    line = raw.strip()
+                    ts   = datetime.now().strftime("%H:%M:%S")
+
+                    for pattern, template, dedup in _LOG_EVENTS:
+                        if not pattern.search(line):
+                            continue
+                        if template is None:
+                            break
+                        msg = _format_event(pattern, template, line)
+                        if msg:
+                            key = msg[:40]
+                            if dedup and key in shown:
+                                break
+                            shown.add(key)
+                            typer.echo(f"  [{ts}]  {msg}")
+                            # Capture MAC from DHCPACK line
+                            if "DHCP lease" in msg:
+                                m2 = re.search(r'\(([\da-fA-F:]{17})\)', msg)
+                                if m2:
+                                    mac = m2.group(1)
+                        break
+
+                # Completion signal — stop regardless of mode
+                if "vme-provision-complete" in raw:
+                    completed = True
+                    break
+
+    except KeyboardInterrupt:
+        pass
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    return completed, mac
+
+
+# ---------------------------------------------------------------------------
+# Post-install summary + VNE handoff prompt
+# ---------------------------------------------------------------------------
+
+
+def _print_summary(
+    cfg: dict,
+    iso_path: Path,
+    started_at: datetime,
+    completed_at: datetime,
+    manifest_path: Path,
+    mac: str | None,
+) -> None:
+    target   = cfg.get("target", {})
+    hostname = target.get("hostname", "")
+    ip       = target.get("ip", "")
+    os_name  = target.get("os", "")
+    username = "root" if os_name == "proxmox-ve" else "ubuntu"
+    duration = _fmt_duration((completed_at - started_at).total_seconds())
+
+    typer.echo()
+    typer.echo(_LINE)
+    typer.echo(f"  Provisioning complete.")
+    typer.echo()
+    typer.echo(f"  Hostname:   {hostname}")
+    typer.echo(f"  OS:         {iso_path.stem}")
+    if mac:
+        typer.echo(f"  MAC:        {mac}")
+    typer.echo(f"  IP:         {ip}")
+    typer.echo(f"  SSH user:   {username}")
+    typer.echo(f"  Duration:   {duration}")
+    typer.echo(f"  Manifest:   {manifest_path}")
+    typer.echo(f"  Full logs:  {_LOG_DIR / manifest_path.stem}.log")
+    typer.echo()
+    typer.echo("  The machine has powered off.")
+    typer.echo("  Before powering it on, fix the boot order so it boots from disk:")
+    typer.echo()
+    typer.echo("    VMware:        VM → Settings → Options → Boot → Hard Disk first")
+    typer.echo("    Real hardware: Enter BIOS (F2 / Del / F12) → Boot Order → Hard Disk first")
+    typer.echo()
+    typer.echo("  Once booted:")
+    typer.echo(f"    ssh {username}@{ip}")
+    typer.echo(_LINE)
+
+
+def _prompt_next_engine(manifest_path: Path) -> None:
+    """Ask whether to hand off to VNE. Handles VNE not being installed."""
+    typer.echo()
+    typer.echo("  What next?")
+    typer.echo("    [1]  Continue to VNE — configure networking")
+    typer.echo("    [2]  Done — I'll connect manually or run other engines later")
+    typer.echo()
+
+    try:
+        choice = input("  Choice [2]: ").strip() or "2"
+    except (KeyboardInterrupt, EOFError):
+        choice = "2"
+
+    if choice != "1":
+        typer.echo()
+        typer.echo(f"  Manifest saved. Pass it to any engine with:")
+        typer.echo(f"    vne setup --manifest {manifest_path}")
+        typer.echo()
+        return
+
+    # Check if VNE is installed.
+    if shutil.which("vne"):
+        typer.echo()
+        typer.echo("  Handing off to VNE ...")
+        subprocess.run(["vne", "setup", "--manifest", str(manifest_path)])
+    else:
+        typer.echo()
+        typer.echo("  VNE is not installed on this machine.")
+        typer.echo("  To install VNE on the seed machine:")
+        typer.echo("    curl -fsSL https://raw.githubusercontent.com/velocit-ee/core/main/vne/install.sh | bash")
+        typer.echo()
+        typer.echo(f"  Then run:")
+        typer.echo(f"    vne setup --manifest {manifest_path}")
+        typer.echo()
 
 
 # ---------------------------------------------------------------------------
@@ -280,23 +456,24 @@ def setup(
 def preflight(
     config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to vme-config.yml"),
 ) -> None:
-    """Run pre-flight checks and report pass/fail without starting a deployment."""
+    """Run pre-flight checks without starting a deployment."""
     typer.echo("Running pre-flight checks ...")
     report = pf.run_all(config)
     _print_preflight(report)
     if report.passed:
         typer.echo("All checks passed. Ready to deploy.")
     else:
-        typer.echo("[error] One or more checks failed. Fix the issues above before deploying.", err=True)
+        typer.echo("[error] One or more checks failed.", err=True)
         raise typer.Exit(1)
 
 
 @app.command()
 def deploy(
     config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to vme-config.yml"),
-    skip_preflight: bool = typer.Option(False, "--skip-preflight", help="Skip pre-flight checks (not recommended)."),
+    skip_preflight: bool = typer.Option(False, "--skip-preflight", help="Skip pre-flight checks."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full compose logs instead of filtered events."),
 ) -> None:
-    """Deploy an OS to target hardware over PXE."""
+    """Provision a machine over PXE — runs unattended from power-on to shutdown."""
     cfg = _load_config(config)
 
     if not skip_preflight:
@@ -304,17 +481,15 @@ def deploy(
         report = pf.run_all(config)
         _print_preflight(report)
         if not report.passed:
-            typer.echo("[error] Pre-flight failed. Aborting deployment.", err=True)
+            typer.echo("[error] Pre-flight failed. Aborting.", err=True)
             raise typer.Exit(1)
         typer.echo("Pre-flight passed.\n")
 
-    # Ensure the provisioning interface has an IP.
     interface = cfg.get("provisioning_interface", "")
-    seed_ip = cfg.get("seed_ip", "192.168.100.1")
+    seed_ip   = cfg.get("seed_ip", "192.168.100.1")
     if interface:
         _assign_ip(interface, seed_ip)
 
-    # Download / verify the configured OS image.
     os_name: str = cfg.get("target", {}).get("os", "")
     typer.echo(f"Ensuring {os_name} image is cached ...")
     try:
@@ -324,7 +499,6 @@ def deploy(
         typer.echo(f"[error] {exc}", err=True)
         raise typer.Exit(1)
 
-    # Render all config templates into ./run/ before compose starts.
     run_dir = config.parent / "run"
     typer.echo("Preparing seed stack config ...")
     _render_templates(cfg, run_dir)
@@ -332,16 +506,50 @@ def deploy(
     typer.echo("Starting seed stack ...")
     _run_compose(cfg, config.parent, up=True)
 
-    typer.echo("\nSeed stack is running.")
-    typer.echo("Power on the target machine now. It will PXE boot and install automatically.")
-    typer.echo("Press Ctrl+C here when provisioning is complete to stop the seed stack.\n")
+    started_at = datetime.now(timezone.utc)
+    hostname   = cfg.get("target", {}).get("hostname", "target")
+    ts_label   = started_at.strftime("%Y%m%dT%H%M%SZ")
+    log_path   = _LOG_DIR / f"deploy-{hostname}-{ts_label}.log"
 
+    typer.echo()
+    typer.echo(_LINE)
+    typer.echo("  Seed stack is running.")
+    typer.echo("  Power on the target machine now.")
+    if verbose:
+        typer.echo("  Showing full compose logs. Press Ctrl+C to stop.\n")
+    else:
+        typer.echo(f"  Watching for key events. Full logs → {log_path}")
+        typer.echo("  Press Ctrl+C to stop manually.\n")
+
+    completed, mac = _stream_deploy_logs(config.parent, log_path, verbose=verbose)
+
+    completed_at = datetime.now(timezone.utc)
+
+    typer.echo()
+    typer.echo("Stopping seed stack ...")
+    _run_compose(cfg, config.parent, up=False)
+
+    if not completed:
+        typer.echo("\nSeed stack stopped. Provisioning may not have completed.")
+        typer.echo(f"Check the full logs at: {log_path}")
+        raise typer.Exit(0)
+
+    # Write manifest.
     try:
-        _compose_logs(config.parent)
-    except KeyboardInterrupt:
-        typer.echo("\nStopping seed stack ...")
-        _run_compose(cfg, config.parent, up=False)
-        typer.echo("Done.")
+        manifest = mf.build_vme(
+            cfg=cfg,
+            iso_path=iso_path,
+            mac=mac,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
+        manifest_path = mf.write(manifest, _MANIFEST_OUTDIR)
+    except (ValueError, Exception) as exc:
+        typer.echo(f"[warn] Could not write manifest: {exc}", err=True)
+        manifest_path = Path("(not written)")
+
+    _print_summary(cfg, iso_path, started_at, completed_at, manifest_path, mac)
+    _prompt_next_engine(manifest_path)
 
 
 @app.command()
@@ -351,13 +559,10 @@ def status(
     """Show the current state of the seed stack."""
     result = subprocess.run(
         ["docker", "compose", "ps"],
-        cwd=config.parent,
-        capture_output=True,
-        text=True,
+        cwd=config.parent, capture_output=True, text=True,
     )
     if result.returncode != 0:
         typer.echo("[error] Could not query Docker Compose status.", err=True)
-        typer.echo(result.stderr, err=True)
         raise typer.Exit(1)
     typer.echo(result.stdout)
 
@@ -366,21 +571,11 @@ def status(
 def reset(
     config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to vme-config.yml"),
     include_images: bool = typer.Option(False, "--images", help="Also delete cached OS images."),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
 ) -> None:
-    """Tear down all VME state and return to a clean install.
-
-    Stops the seed stack, removes Docker volumes and the built iPXE image,
-    and clears the rendered run/ directory. Pass --images to also delete
-    cached OS ISOs (requires re-downloading on next deploy).
-    """
-    cwd = config.parent
-
-    parts = [
-        "seed stack containers and volumes",
-        "built iPXE Docker image",
-        "rendered run/ config",
-    ]
+    """Tear down all VME state and return to a clean install."""
+    cwd   = config.parent
+    parts = ["seed stack containers and volumes", "built iPXE Docker image", "rendered run/ config"]
     if include_images:
         parts.append("cached OS images")
 
@@ -391,31 +586,20 @@ def reset(
         typer.echo()
         typer.confirm("Continue?", abort=True)
 
-    # Stop containers and remove volumes.
     typer.echo("Stopping seed stack ...")
-    subprocess.run(
-        ["docker", "compose", "down", "--volumes"],
-        cwd=cwd, capture_output=True,
-    )
+    subprocess.run(["docker", "compose", "down", "--volumes"], cwd=cwd, capture_output=True)
 
-    # Remove the compiled iPXE Docker image so next deploy rebuilds it.
     typer.echo("Removing built Docker image ...")
     subprocess.run(["docker", "rmi", "vme-ipxe-build"], capture_output=True)
 
-    # Clear rendered run/ directory.
     run_dir = cwd / "run"
     if run_dir.exists():
         typer.echo("Clearing run/ ...")
         shutil.rmtree(run_dir)
 
-    # Optionally clear image cache.
-    if include_images:
-        if config.exists():
-            cfg = _load_config(config)
-            removed = img.clean_cache(cfg)
-            typer.echo(f"Removed {removed} cached image file(s).")
-        else:
-            typer.echo("No config found — skipping image cache cleanup.")
+    if include_images and config.exists():
+        removed = img.clean_cache(_load_config(config))
+        typer.echo(f"Removed {removed} cached image file(s).")
 
     typer.echo("\nReset complete. Run 'vme deploy' to start fresh.")
 
@@ -427,10 +611,10 @@ def reset(
 
 @images_app.command("list")
 def images_list(
-    config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to vme-config.yml"),
+    config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c"),
 ) -> None:
     """List cached OS images."""
-    cfg = _load_config(config)
+    cfg    = _load_config(config)
     cached = img.list_cached(cfg)
     if not cached:
         typer.echo("No images cached yet. Run 'vme images pull <os>' to download.")
@@ -444,18 +628,15 @@ def images_list(
 
 @images_app.command("pull")
 def images_pull(
-    os_name: Optional[str] = typer.Argument(None, help="OS slug to cache (e.g. ubuntu-server). Defaults to configured OS."),
-    config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to vme-config.yml"),
+    os_name: Optional[str] = typer.Argument(None, help="OS slug (e.g. ubuntu-server). Defaults to configured OS."),
+    config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c"),
 ) -> None:
-    """Pre-cache an OS image before deployment.
-
-    Available OS slugs: {slugs}
-    """
+    """Pre-cache an OS image before deployment."""
     cfg = _load_config(config)
     if os_name is None:
         os_name = cfg.get("target", {}).get("os", "")
         if not os_name:
-            typer.echo("[error] No OS specified and none configured in vme-config.yml.", err=True)
+            typer.echo("[error] No OS specified and none configured.", err=True)
             raise typer.Exit(1)
     typer.echo(f"Pulling {os_name} image ...")
     try:
@@ -466,32 +647,23 @@ def images_pull(
         raise typer.Exit(1)
 
 
-images_pull.__doc__ = images_pull.__doc__.format(slugs=", ".join(OS_REGISTRY))  # type: ignore[union-attr]
-
-
 @images_app.command("clean")
 def images_clean(
-    os_name: Optional[str] = typer.Argument(None, help="OS slug to remove (e.g. proxmox-ve). Omit to remove all."),
-    config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to vme-config.yml"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+    os_name: Optional[str] = typer.Argument(None, help="OS slug to remove. Omit to remove all."),
+    config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c"),
+    yes: bool = typer.Option(False, "--yes", "-y"),
 ) -> None:
-    """Delete cached OS images.
-
-    Pass an OS slug to delete only that OS. Omit to delete everything.
-    """
-    cfg = _load_config(config)
+    """Delete cached OS images. Pass an OS slug to delete only that OS."""
+    cfg   = _load_config(config)
     cache = img.cache_dir_for(cfg)
-
-    target_desc = f"'{os_name}' images" if os_name else f"all images"
+    desc  = f"'{os_name}'" if os_name else "all"
     if not yes:
-        typer.confirm(f"Delete {target_desc} in {cache}?", abort=True)
-
+        typer.confirm(f"Delete {desc} images in {cache}?", abort=True)
     try:
         removed = img.clean_cache(cfg, os_name=os_name)
     except ValueError as exc:
         typer.echo(f"[error] {exc}", err=True)
         raise typer.Exit(1)
-
     typer.echo(f"Removed {removed} file(s).")
 
 
@@ -501,36 +673,26 @@ def images_clean(
 
 
 def _run_compose(cfg: dict, cwd: Path, *, up: bool) -> None:
-    """Start or stop the Docker Compose seed stack, passing required env vars."""
     interface = cfg.get("provisioning_interface", "")
-    seed_ip = cfg.get("seed_ip") or _get_interface_ip(interface) or "192.168.100.1"
-    cache_dir = str(img.cache_dir_for(cfg))
+    seed_ip   = cfg.get("seed_ip") or _get_interface_ip(interface) or "192.168.100.1"
 
     env_vars = {
         "PROVISIONING_INTERFACE": interface,
-        "DHCP_RANGE_START": str(cfg.get("dhcp_range_start", "")),
-        "DHCP_RANGE_END": str(cfg.get("dhcp_range_end", "")),
-        "DHCP_LEASE_TIME": str(cfg.get("dhcp_lease_time", "12h")),
-        "SEED_IP": seed_ip,
-        "IMAGE_CACHE_DIR": cache_dir,
+        "DHCP_RANGE_START":       str(cfg.get("dhcp_range_start", "")),
+        "DHCP_RANGE_END":         str(cfg.get("dhcp_range_end", "")),
+        "DHCP_LEASE_TIME":        str(cfg.get("dhcp_lease_time", "12h")),
+        "SEED_IP":                seed_ip,
+        "IMAGE_CACHE_DIR":        str(img.cache_dir_for(cfg)),
     }
 
-    compose_env = {**os.environ, **env_vars}
-
-    if up:
-        cmd = ["docker", "compose", "up", "-d", "--build"]
-    else:
-        cmd = ["docker", "compose", "down"]
-
-    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=compose_env)
+    cmd = ["docker", "compose", "up", "-d", "--build"] if up else ["docker", "compose", "down"]
+    result = subprocess.run(
+        cmd, cwd=cwd, capture_output=True, text=True,
+        env={**os.environ, **env_vars},
+    )
     if result.returncode != 0:
         typer.echo(f"[error] docker compose failed:\n{result.stderr}", err=True)
         raise typer.Exit(1)
-
-
-def _compose_logs(cwd: Path) -> None:
-    """Tail Docker Compose logs (blocks until interrupted)."""
-    subprocess.run(["docker", "compose", "logs", "-f"], cwd=cwd)
 
 
 # ---------------------------------------------------------------------------
@@ -539,7 +701,6 @@ def _compose_logs(cwd: Path) -> None:
 
 
 def main() -> None:
-    """CLI entry point."""
     app()
 
 
