@@ -1,27 +1,25 @@
 # Getting Started with VME
 
-VME installs an operating system onto a server for you — automatically, over your network. You plug in the machine, run one command, and walk away. VME handles everything else.
-
-This guide walks you through installation and first-time setup. No prior Linux or networking experience required.
+VME installs an operating system onto a server for you — automatically, over the network. You plug in the machine, run one command, and walk away.
 
 ---
 
 ## What you need
 
-**The seed machine** — the computer that runs VME. This is usually a laptop, Raspberry Pi, or spare computer you have on hand. It needs:
+**The seed machine** — the computer that runs VME. Usually a laptop, Raspberry Pi, or spare desktop. It needs:
 
-- Ubuntu 22.04 or newer (or Debian 12+)
-- A network cable connection to the same switch as your target machine
-- About 15 GB of free disk space (for the OS image VME downloads)
-- An internet connection (to download Docker, VME, and the OS image)
+- Ubuntu 22.04 or newer (Debian 12+ also works)
+- A network cable connected to the same switch as your target machine
+- About 15 GB of free disk space for the OS image
+- An internet connection for the initial download
 
-**The target machine** — the server you want VME to provision. It needs:
+**The target machine** — the server you're provisioning. It needs:
 
-- At least 4 GB RAM and 64 GB storage (Proxmox VE minimum; Ubuntu Server can run on less)
-- A network card (most computers from the past 15 years work)
-- Set to boot from the network — see [Setting the target to network boot](#setting-the-target-to-network-boot) below
+- At least 4 GB RAM and 64 GB storage (Proxmox VE minimum; Ubuntu Server works with less)
+- A wired network card
+- The ability to boot from the network — covered in step 3 below
 
-**A network switch** connecting both machines. A simple unmanaged switch is fine.
+**A network switch** connecting both machines. A basic unmanaged switch is fine.
 
 ---
 
@@ -33,16 +31,9 @@ On your seed machine, open a terminal and run:
 curl -fsSL https://raw.githubusercontent.com/velocit-ee/core/main/vme/install.sh | bash
 ```
 
-The installer will:
+This installs Docker, Python, downloads VME, and creates the `vme` command. It takes a few minutes and will ask for your password once.
 
-1. Install Docker (the container platform VME uses to run its services)
-2. Install Python 3.11 or newer
-3. Download VME from GitHub
-4. Create the `vme` command so you can use it anywhere
-
-The whole process takes a few minutes. You may be asked for your password once — this is normal, it needs administrator access to install software.
-
-When it finishes you should see:
+When it finishes:
 
 ```
   VME installed successfully.
@@ -53,30 +44,26 @@ When it finishes you should see:
     vme setup
 ```
 
-> **If `vme` is not found after install:** Close and reopen your terminal, then try again.
+> **`vme` not found after install?** Close and reopen your terminal, then try again.
 
 ---
 
 ## Step 2 — Run the setup wizard
 
-The setup wizard asks you a handful of questions and writes your configuration file. You do not need to edit any files by hand.
-
-Navigate to the VME directory and run it:
+The wizard asks you a few questions and writes your config file. No YAML editing required.
 
 ```bash
 cd ~/vme/vme
 vme setup
 ```
 
-The wizard has four steps.
+The wizard has five steps.
 
 ---
 
-### Wizard step 1 of 4 — Provisioning network
+### Step 1 of 5 — Provisioning network
 
-VME needs to know which network port on your seed machine is connected to the switch that your target machine is plugged into.
-
-The wizard lists all detected network interfaces and picks a sensible default. An interface labelled **connected** has a live cable. One labelled **no IP** has no address assigned yet — which is what you want for the provisioning port, since VME will manage addresses on it.
+VME needs to know which network port is connected to the switch your target machine is on.
 
 ```
   Detected network interfaces:
@@ -87,80 +74,70 @@ The wizard lists all detected network interfaces and picks a sensible default. A
   Which interface is connected to your provisioning switch? [2]:
 ```
 
-Press Enter to accept the suggestion, or type the number of the correct interface.
+Press Enter to accept the suggestion, or type the number of the right interface. The one labelled **no IP** and **connected** is usually the right choice — it has a cable but no address yet, which is exactly what you want.
 
-**Next**, the wizard asks for the IP address your seed machine should use on that interface:
+Next it asks for the seed machine's IP on that interface:
 
 ```
-  eth1 has no IP address.
-  VME needs an IP on this interface so target machines can reach the seed stack.
-
   Seed machine IP on this interface [192.168.100.1]:
 ```
 
-The default (`192.168.100.1`) works for most setups. Press Enter to accept it.
+The default works for most setups. Press Enter.
 
-**Then** it asks for the range of addresses to hand out to target machines during provisioning:
+Then the temporary address range for target machines during provisioning:
 
 ```
   First IP to hand out to target machines [192.168.100.100]:
   Last IP in that range [192.168.100.200]:
 ```
 
-The defaults are fine. Press Enter twice.
+Press Enter twice to accept the defaults.
 
-> **What is this?** Your target machine needs a temporary IP address to download the OS installer. VME's built-in DHCP server hands this out automatically. The range you set here is a pool of temporary addresses — you can leave the defaults unless something else on your network already uses `192.168.100.x`.
+**Firewall:** If you have UFW active, the wizard will detect it and offer to open the required ports automatically. Say yes.
 
 ---
 
-### Wizard step 2 of 4 — Target machine
-
-This is where you describe the machine you want to provision.
+### Step 2 of 5 — Target machine
 
 ```
   Which OS do you want to install?
     [1]  Proxmox VE
     [2]  Ubuntu Server
-
-  Which OS do you want to install? [1]:
 ```
 
-Choose `1` for Proxmox VE (a hypervisor for running virtual machines) or `2` for Ubuntu Server (a general-purpose Linux server).
+Choose `1` for Proxmox VE (runs virtual machines) or `2` for Ubuntu Server (general purpose Linux).
 
-Then the wizard asks for the permanent settings the installed OS will use:
+Then fill in the permanent settings for the installed machine:
 
-```
-  Hostname for this machine [node-01]:
-```
-The hostname is the machine's name on your network. You can leave the default or type something like `server-01`.
+| Field | What it means |
+|-------|--------------|
+| Hostname | The machine's name on your network (e.g. `node-01`) |
+| Fixed IP | Its permanent IP after provisioning — should be outside the `.100`–`.200` range, so `.10` is safe |
+| Gateway | Your router's address |
+| DNS server | `8.8.8.8` works everywhere |
+| Install disk | The disk to wipe and install onto — `/dev/sda` for most hardware, `/dev/nvme0n1` for NVMe drives |
+| Timezone | Used by the installed OS (e.g. `Europe/Berlin`) |
 
-```
-  Fixed IP address for the installed OS [192.168.100.10]:
-```
-This is the permanent IP address the machine will have after provisioning is complete. It should be outside the temporary DHCP range you set in step 1 (which was `.100`–`.200`), so `.10` is safe.
-
-```
-  Gateway for the installed OS [192.168.100.1]:
-```
-Your network's router address. The default matches the seed machine IP from step 1 — this is correct if your seed machine is acting as a gateway, or if your switch has a separate router at that address.
-
-```
-  DNS server [8.8.8.8]:
-```
-Where the installed machine looks up domain names. `8.8.8.8` is Google's public DNS and works everywhere. Press Enter.
-
-```
-  Install disk on the target machine [/dev/sda]:
-```
-The disk VME will install the OS onto. The default (`/dev/sda`) is correct for most machines. If your target has an NVMe drive, it may be `/dev/nvme0n1` — check your hardware specs if unsure.
-
-> **Warning:** VME erases this disk completely during install. Make sure there is no data on it you want to keep.
+> **Warning:** VME wipes the install disk completely. Make sure there's nothing on it you want to keep.
 
 ---
 
-### Wizard step 3 of 4 — SSH access
+### Step 3 of 5 — User account
 
-SSH is how you will log into the machine after provisioning. The wizard looks for an existing key in your home directory:
+The installer needs a password for the main user account even if you're using SSH keys.
+
+```
+  Password:
+  Confirm:
+```
+
+The password is hashed immediately — the plaintext is never stored anywhere.
+
+---
+
+### Step 4 of 5 — SSH access
+
+SSH is how you'll connect after provisioning. The wizard looks for an existing key:
 
 ```
   Found: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... you@machine
@@ -168,28 +145,19 @@ SSH is how you will log into the machine after provisioning. The wizard looks fo
   Use this key? [Y/n]:
 ```
 
-Press Enter to use the found key. If no key was found:
-
-```
-  No SSH key found in ~/.ssh/
-  Generate one with: ssh-keygen -t ed25519
-
-  Paste your SSH public key:
-```
-
-Generate one first, then come back:
+Press Enter to use the found key. If you don't have one yet:
 
 ```bash
 ssh-keygen -t ed25519
 ```
 
-Press Enter three times to accept all defaults. Then run `cat ~/.ssh/id_ed25519.pub` and paste the output into the wizard prompt.
+Press Enter three times for defaults. Then run `cat ~/.ssh/id_ed25519.pub` and paste the output into the wizard.
 
 ---
 
-### Wizard step 4 of 4 — Saving config
+### Step 5 of 5 — Saving config
 
-The wizard writes your answers to `vme-config.yml` and prints a summary:
+The wizard writes `vme-config.yml` and prints next steps:
 
 ```
   Config written to vme-config.yml
@@ -208,11 +176,10 @@ The wizard writes your answers to `vme-config.yml` and prints a summary:
 
 ## Step 3 — Set the target to network boot
 
-The target machine needs to be told to load its operating system from the network instead of a local disk. This setting lives in the machine's BIOS or UEFI firmware.
+The target needs to load from the network before its hard drive. This is a one-time BIOS change.
 
-**How to get there:** Power on the target machine and immediately press the key shown on screen — usually `F2`, `F10`, `F12`, `Del`, or `Esc`. The exact key depends on your hardware brand.
+Power on the target and immediately press the key your hardware uses to enter the boot menu or BIOS:
 
-Common brands:
 | Brand | Key |
 |-------|-----|
 | Dell | F12 (boot menu) or F2 (BIOS) |
@@ -221,102 +188,135 @@ Common brands:
 | ASRock / ASUS / MSI / Gigabyte | F11 or F8 (boot menu) or Del (BIOS) |
 | Supermicro | F11 (boot menu) |
 
-Once in the boot menu or BIOS:
+Once in the boot settings:
 
-1. Look for **Boot Order** or **Boot Priority**
-2. Move **Network** or **PXE** to the top of the list (above the hard drive)
-3. Save and exit — usually **F10** → **Yes**
+1. Find **Boot Order** or **Boot Priority**
+2. Move **Network** or **PXE** to the top (above the hard drive)
+3. Save and exit — usually F10 → Yes
 
-The machine will power off or restart. Leave it off for now.
+Power the machine off and leave it for now.
 
 ---
 
 ## Step 4 — Deploy
 
-Back on your seed machine, run:
-
 ```bash
 vme deploy
 ```
 
-VME will:
-1. Run a quick set of checks to make sure everything is ready
-2. Download the OS image if it hasn't been cached yet (this can take a few minutes on a slow connection — Proxmox VE is about 1.2 GB, Ubuntu Server is about 2 GB)
-3. Start the provisioning services
-
-When you see:
+VME runs a quick pre-flight check, downloads the OS image if it's not already cached, then starts the provisioning services. Once it's ready:
 
 ```
-Seed stack is running.
-Power on the target machine now. It will PXE boot and install automatically.
-Press Ctrl+C here when provisioning is complete to stop the seed stack.
+  Seed stack is running.
+  Power on the target machine now.
+  Watching for key events. Full logs → ~/.velocitee/logs/deploy-node-01-...log
+  Press Ctrl+C to stop manually.
 ```
 
-Power on your target machine. It will:
-1. Request a network address from VME
-2. Load the VME boot menu over the network
-3. Begin installing the OS automatically — no keyboard or mouse interaction needed on the target
+Power on your target machine. VME shows what's happening as it goes:
 
-The install typically takes 10–20 minutes depending on hardware speed. You can watch progress in the log output on your seed machine.
+```
+  [10:32:45]  Target discovered       MAC 00:0c:29:0a:66:5e
+  [10:32:45]  DHCP lease granted      192.168.100.168
+  [10:32:46]  iPXE binary delivered   via TFTP
+  [10:32:47]  Boot menu loaded        via HTTP
+  [10:32:47]  OS image streaming      ubuntu-24.04.4-live-server-amd64.iso
+```
 
-When the target machine reboots on its own and the installer is no longer running, provisioning is complete. Press **Ctrl+C** on the seed machine to stop VME.
+The install runs automatically — no interaction needed on the target machine. It typically takes 10–20 minutes. When it finishes, the target powers itself off and VME shows a summary:
+
+```
+  ════════════════════════════════════════════════════════════
+  Provisioning complete.
+
+  Hostname:   node-01
+  IP:         192.168.100.10
+  SSH user:   ubuntu
+  Duration:   12m 34s
+  ════════════════════════════════════════════════════════════
+```
 
 ---
 
-## After provisioning
+## Step 5 — Fix the boot order and connect
 
-Log into your newly provisioned machine:
+The target powered off after install. Before powering it back on, go back into its BIOS and move the **Hard Disk** above **Network** in the boot order — otherwise it will try to PXE boot again and loop.
+
+Once you've done that, power it on and connect:
 
 ```bash
-ssh root@192.168.100.10
+ssh ubuntu@192.168.100.10
 ```
 
-(Replace `192.168.100.10` with whatever IP you set in step 2 of the wizard.)
+(Use `root` instead of `ubuntu` if you installed Proxmox VE.)
 
-VME also writes a manifest file describing the machine it just provisioned:
+---
+
+## What next?
+
+After provisioning completes, VME will ask:
 
 ```
-manifests/output/node-01.yml
+  What next?
+    [1]  Continue to VNE — configure networking
+    [2]  Done
 ```
 
-This file is used by VNE (the next engine in the velocit.ee stack) to configure networking on the machine.
+- **VNE** is the next engine in the velocit.ee stack. It configures the machine's networking. If it's installed, VME hands off to it automatically.
+- **Done** closes VME and leaves a manifest file at `manifests/output/node-01-<timestamp>.json` with everything that was provisioned. You can pass this to any engine later.
+
+---
+
+## Other useful commands
+
+```bash
+# Download OS images ahead of time
+vme images pull ubuntu-server
+vme images pull proxmox-ve
+
+# See what's cached
+vme images list
+
+# Delete a specific cached image (frees up disk space)
+vme images clean proxmox-ve
+
+# Run pre-flight checks without deploying
+vme preflight
+
+# See full compose logs during deployment (for troubleshooting)
+vme deploy --verbose
+
+# Wipe everything and start fresh
+vme reset
+
+# Wipe everything including the downloaded OS images
+vme reset --images
+```
 
 ---
 
 ## Troubleshooting
 
-**The target machine shows "No DHCP or proxyDHCP offers were received"**
-The target sent a PXE boot request but VME's DHCP server didn't respond. Check that:
-- `vme deploy` is still running in the terminal — if it exited, restart it before powering on the target
-- Both machines are on the same network switch or virtual network
-- If you have a firewall (UFW) active, the preflight check will flag this. Fix it with:
-  ```bash
-  sudo ufw allow in on <your-interface> to any port 67 proto udp
-  ```
+**The target shows "No DHCP or proxyDHCP offers were received"**
+VME's DHCP server didn't respond. Check:
+- `vme deploy` is still running
+- Both machines are on the same switch
+- The firewall allows port 67/udp on the provisioning interface. The setup wizard handles this, but if you skipped it: `sudo ufw allow in on <interface> to any port 67 proto udp`
 
-**The pre-flight check fails with "Port 69 (TFTP) is already in use"**
-Another TFTP server (`tftpd-hpa` or `in.tftpd`) is running on the seed machine. Stop it:
-```bash
-sudo systemctl stop tftpd-hpa
-```
+**Pre-flight fails with "Port 69 (TFTP) is already in use"**
+Another TFTP server is running. Stop it: `sudo systemctl stop tftpd-hpa`
 
-**The pre-flight check fails with "ufw is active but port 67 or port 80 may be blocked"**
-The setup wizard normally opens these ports automatically. If you skipped that step or added a new interface, run the commands shown in the preflight output, then retry `vme deploy`. VME needs port 67/udp (DHCP) so target machines get an IP, port 69/udp (TFTP) for the initial iPXE binary, and port 80/tcp (HTTP) so iPXE can fetch the boot menu and OS image.
+**Pre-flight fails with "ufw is active but port 67 or 80 may be blocked"**
+The setup wizard normally opens these automatically. Run the commands shown in the preflight output. VME needs 67/udp (DHCP), 69/udp (TFTP), and 80/tcp (HTTP).
 
-**The target machine shows a "No boot device" or "PXE-E53" error**
-The target is not reaching VME. Check that:
-- Both machines are connected to the same switch
-- VME is running (`vme deploy` is active in another terminal)
-- The interface you chose in the wizard is the one with the cable to the switch (`ip addr` will show which interfaces have a link)
+**Target shows "No boot device" or "PXE-E53"**
+Not reaching VME — check both machines are on the same switch and `vme deploy` is running.
 
-**The pre-flight check fails with "Interface not found"**
-The interface name in your config doesn't match what Linux sees. Run `ip link` to list interface names and update `vme-config.yml`, or re-run `vme setup`.
+**Pre-flight fails with "Interface not found"**
+The interface name in your config doesn't match what Linux sees. Run `ip link` and update `vme-config.yml`, or re-run `vme setup`.
 
-**The pre-flight check fails with "conflicting DHCP server detected"**
-Another device on the provisioning network is already handing out IP addresses (common if the switch also connects to your main router). Connect the seed and target directly through a dedicated switch, or use a separate unmanaged switch isolated from your main network.
+**Pre-flight fails with "conflicting DHCP server detected"**
+Something else on the network is handing out IPs (often a router on the same switch). Use a dedicated unmanaged switch isolated from your main network.
 
-**The install starts but the machine reboots into the installer again (boot loop)**
-The target's boot order still has Network first. After provisioning, go back into the BIOS and move the hard drive above Network in the boot order — or disable network boot entirely.
-
-**`vme` command not found after install**
-Close and reopen your terminal, then try again.
+**Boot loop after install**
+The target is still booting from the network. Go into BIOS and move Hard Disk above Network in the boot order.

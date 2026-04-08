@@ -14,10 +14,6 @@ from pathlib import Path
 from typing import Optional
 
 
-# ---------------------------------------------------------------------------
-# Terminal helpers
-# ---------------------------------------------------------------------------
-
 def _line(char: str = "─", width: int = 54) -> str:
     return char * width
 
@@ -68,10 +64,6 @@ def _ask_yes(prompt: str, default: bool = True) -> bool:
         return default if raw == "" else True
     return False
 
-
-# ---------------------------------------------------------------------------
-# Network interface detection
-# ---------------------------------------------------------------------------
 
 @dataclass
 class NetworkInterface:
@@ -237,10 +229,6 @@ def _find_ssh_key() -> Optional[str]:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Wizard
-# ---------------------------------------------------------------------------
-
 def run(config_path: Path) -> None:
     """Run the interactive setup wizard and write *config_path*."""
 
@@ -249,9 +237,6 @@ def run(config_path: Path) -> None:
     print("  This wizard builds your config file through a few simple questions.")
     print("  Press Enter to accept the suggested value shown in [brackets].")
 
-    # -------------------------------------------------------------------------
-    # Step 1: provisioning interface
-    # -------------------------------------------------------------------------
     _step(1, 5, "Provisioning network")
 
     print("  Detected network interfaces:\n")
@@ -286,9 +271,6 @@ def run(config_path: Path) -> None:
 
     _configure_firewall(interface)
 
-    # -------------------------------------------------------------------------
-    # Step 2: target machine
-    # -------------------------------------------------------------------------
     _step(2, 5, "Target machine")
 
     os_choice = _ask_choice(
@@ -305,9 +287,6 @@ def run(config_path: Path) -> None:
     disk      = _ask("Install disk on the target machine", "/dev/sda")
     timezone  = _ask("Timezone for the installed OS", "Europe/Berlin")
 
-    # -------------------------------------------------------------------------
-    # Step 3: OS user account
-    # -------------------------------------------------------------------------
     _step(3, 5, "User account")
 
     print("  The installed OS creates an 'ubuntu' user (Ubuntu) or 'root' (Proxmox).")
@@ -337,9 +316,6 @@ def run(config_path: Path) -> None:
             print("      Is openssl installed? (sudo apt-get install openssl)\n")
             break
 
-    # -------------------------------------------------------------------------
-    # Step 4: SSH key
-    # -------------------------------------------------------------------------
     _step(4, 5, "SSH access")
 
     found_key = _find_ssh_key()
@@ -357,9 +333,6 @@ def run(config_path: Path) -> None:
         print("\n  [!] No SSH key provided. You will not be able to log in after provisioning.")
         print("      You can re-run `vme setup` to add one later.\n")
 
-    # -------------------------------------------------------------------------
-    # Step 5: write config
-    # -------------------------------------------------------------------------
     _step(5, 5, "Saving config")
 
     # Derive /prefix length from a /24 default; keep it simple for now.
