@@ -163,6 +163,7 @@ def _generate_boot_ipxe(
                     f"imgargs vmlinuz initrd=initrd ip=dhcp"
                     f" url=${{nginx}}/images/{iso.name}"
                     f" autoinstall ds=nocloud-net${{sc:string}}s=${{nginx}}/cloud-init/"
+                    f" cloud-init.datasource_list=[NoCloudNet]"
                 ),
                 "boot || goto failed",
                 "",
@@ -292,6 +293,7 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
         _REPO_ROOT / "targets" / "proxmox" / "answer.toml": run_dir / "proxmox" / "answer.toml",
         _REPO_ROOT / "targets" / "ubuntu" / "preseed.cfg":  run_dir / "cloud-init" / "user-data",
         _REPO_ROOT / "targets" / "ubuntu" / "meta-data":    run_dir / "cloud-init" / "meta-data",
+        _REPO_ROOT / "targets" / "ubuntu" / "vendor-data":  run_dir / "cloud-init" / "vendor-data",
     }
 
     for src, dest in templates.items():
