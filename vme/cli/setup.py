@@ -6,6 +6,7 @@ and writes a ready-to-use config file.
 
 from __future__ import annotations
 
+import getpass
 import re
 import subprocess
 from dataclasses import dataclass
@@ -208,6 +209,19 @@ def _configure_firewall(interface: str) -> None:
         print(f"  Some rules may need to be added manually.")
 
 
+def _hash_password(plaintext: str) -> str:
+    """Return a SHA-512 crypt hash of *plaintext* using openssl."""
+    result = subprocess.run(
+        ["openssl", "passwd", "-6", "-stdin"],
+        input=plaintext,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        raise RuntimeError(f"openssl passwd failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
 def _find_ssh_key() -> Optional[str]:
     """Return the first SSH public key found in ~/.ssh/, or None."""
     candidates = [
@@ -238,7 +252,7 @@ def run(config_path: Path) -> None:
     # -------------------------------------------------------------------------
     # Step 1: provisioning interface
     # -------------------------------------------------------------------------
-    _step(1, 4, "Provisioning network")
+    _step(1, 5, "Provisioning network")
 
     print("  Detected network interfaces:\n")
     ifaces = _detect_interfaces()
@@ -275,7 +289,7 @@ def run(config_path: Path) -> None:
     # -------------------------------------------------------------------------
     # Step 2: target machine
     # -------------------------------------------------------------------------
-    _step(2, 4, "Target machine")
+    _step(2, 5, "Target machine")
 
     os_choice = _ask_choice(
         "Which OS do you want to install?",
@@ -284,16 +298,49 @@ def run(config_path: Path) -> None:
     )
     os_name = "proxmox-ve" if os_choice == 1 else "ubuntu-server"
 
-    hostname = _ask("Hostname for this machine", "node-01")
+    hostname  = _ask("Hostname for this machine", "node-01")
     target_ip = _ask("Fixed IP address for the installed OS", "192.168.100.10")
     gateway   = _ask("Gateway for the installed OS", seed_ip)
     dns       = _ask("DNS server", "8.8.8.8")
     disk      = _ask("Install disk on the target machine", "/dev/sda")
+    timezone  = _ask("Timezone for the installed OS", "Europe/Berlin")
 
     # -------------------------------------------------------------------------
-    # Step 3: SSH key
+    # Step 3: OS user account
     # -------------------------------------------------------------------------
-    _step(3, 4, "SSH access")
+    _step(3, 5, "User account")
+
+    print("  The installed OS creates an 'ubuntu' user (Ubuntu) or 'root' (Proxmox).")
+    print("  Set a password for this account. SSH key login is preferred but a")
+    print("  password is required by the installer.\n")
+
+    password_hash = ""
+    while True:
+        try:
+            pw1 = getpass.getpass("  Password: ")
+            if not pw1:
+                print("  [!] Password cannot be empty.")
+                continue
+            pw2 = getpass.getpass("  Confirm:  ")
+            if pw1 != pw2:
+                print("  Passwords do not match. Try again.\n")
+                continue
+        except (KeyboardInterrupt, EOFError):
+            print("\n\nSetup cancelled.")
+            raise SystemExit(0)
+        try:
+            password_hash = _hash_password(pw1)
+            print("  Password hashed.")
+            break
+        except RuntimeError as exc:
+            print(f"  [!] Could not hash password: {exc}")
+            print("      Is openssl installed? (sudo apt-get install openssl)\n")
+            break
+
+    # -------------------------------------------------------------------------
+    # Step 4: SSH key
+    # -------------------------------------------------------------------------
+    _step(4, 5, "SSH access")
 
     found_key = _find_ssh_key()
     if found_key:
@@ -311,9 +358,9 @@ def run(config_path: Path) -> None:
         print("      You can re-run `vme setup` to add one later.\n")
 
     # -------------------------------------------------------------------------
-    # Step 4: write config
+    # Step 5: write config
     # -------------------------------------------------------------------------
-    _step(4, 4, "Saving config")
+    _step(5, 5, "Saving config")
 
     # Derive /prefix length from a /24 default; keep it simple for now.
     prefix = "24"
@@ -333,6 +380,8 @@ def run(config_path: Path) -> None:
             "dns": dns,
             "os": os_name,
             "disk": disk,
+            "timezone": timezone,
+            "password_hash": password_hash,
             "ssh_public_key": ssh_key,
         },
     }
