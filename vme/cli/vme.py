@@ -161,9 +161,8 @@ def _generate_boot_ipxe(
                 f"initrd ${{nginx}}/boot/{slug}/initrd",
                 (
                     f"imgargs vmlinuz initrd=initrd ip=dhcp"
-                    f" url=${{nginx}}/images/{iso.name}"
+                    f" fetch=${{nginx}}/boot/{slug}/filesystem.squashfs"
                     f" autoinstall ds=nocloud-net${{sc:string}}s=${{nginx}}/cloud-init/"
-                    f" cloud-init.datasource_list=[NoCloudNet]"
                 ),
                 "boot || goto failed",
                 "",
@@ -238,6 +237,19 @@ def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str) -> None:
 
         shutil.copy2(src_vmlinuz, vmlinuz)
         shutil.copy2(src_initrd, initrd)
+
+        # Also extract the squashfs so we can use fetch= instead of url=.
+        # fetch= tells casper to download just the squashfs; cloud-init has no fetch= datasource
+        # so it won't try to download the 3 GB ISO on its own.
+        squashfs_rel = meta.get("squashfs_path")
+        if squashfs_rel:
+            squashfs = dest / "filesystem.squashfs"
+            src_squashfs = mnt / squashfs_rel
+            if not squashfs.exists() and src_squashfs.exists():
+                squashfs_mb = src_squashfs.stat().st_size // (1024**2)
+                typer.echo(f"  Copying filesystem.squashfs ({squashfs_mb} MB) ...")
+                shutil.copy2(src_squashfs, squashfs)
+
         typer.echo(f"  Boot files extracted ({vmlinuz.stat().st_size // (1024**2)} MB kernel, "
                    f"{initrd.stat().st_size // (1024**2)} MB initrd).")
     finally:
