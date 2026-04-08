@@ -242,9 +242,10 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
         "TARGET_DISK": target.get("disk", "/dev/sda"),
         "TARGET_NIC": "eth0",
         "TARGET_SSH_PUBLIC_KEY": target.get("ssh_public_key", ""),
+        "TARGET_TIMEZONE": target.get("timezone", "UTC"),
         "TARGET_ROOT_PASSWORD": target.get("root_password", "changeme"),
         "TARGET_EMAIL": target.get("email", "root@localhost"),
-        "TARGET_PASSWORD_HASH": target.get("password_hash", "$6$rounds=4096$placeholder"),
+        "TARGET_PASSWORD_HASH": target.get("password_hash", ""),
     }
 
     templates = {
