@@ -38,11 +38,6 @@ _MANIFEST_OUTDIR = _REPO_ROOT / "manifests" / "output"
 _LINE = "═" * 60
 
 
-# ---------------------------------------------------------------------------
-# Config helpers
-# ---------------------------------------------------------------------------
-
-
 def _load_config(config_path: Path) -> dict:
     if not config_path.exists():
         typer.echo(
@@ -68,11 +63,6 @@ def _print_preflight(report: pf.PreflightReport) -> None:
             for line in result.fix.splitlines():
                 typer.echo(f"         fix: {line}")
     typer.echo()
-
-
-# ---------------------------------------------------------------------------
-# Network helpers
-# ---------------------------------------------------------------------------
 
 
 def _get_interface_ip(interface: str) -> Optional[str]:
@@ -103,11 +93,6 @@ def _assign_ip(interface: str, ip: str) -> None:
         )
         raise typer.Exit(1)
     subprocess.run(["sudo", "ip", "link", "set", interface, "up"], capture_output=True)
-
-
-# ---------------------------------------------------------------------------
-# Boot script generation
-# ---------------------------------------------------------------------------
 
 
 def _generate_boot_ipxe(
@@ -192,11 +177,6 @@ def _generate_boot_ipxe(
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Template rendering
-# ---------------------------------------------------------------------------
-
-
 def _render_templates(cfg: dict, run_dir: Path) -> None:
     target    = cfg.get("target", {})
     interface = cfg["provisioning_interface"]
@@ -245,10 +225,6 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(Template(src.read_text()).safe_substitute(subs))
 
-
-# ---------------------------------------------------------------------------
-# Log streaming
-# ---------------------------------------------------------------------------
 
 # Events to surface in normal (non-verbose) mode.
 # Each entry: (regex, display_template, deduplicate)
@@ -358,11 +334,6 @@ def _stream_deploy_logs(
     return completed, mac
 
 
-# ---------------------------------------------------------------------------
-# Post-install summary + VNE handoff prompt
-# ---------------------------------------------------------------------------
-
-
 def _print_summary(
     cfg: dict,
     iso_path: Path,
@@ -437,11 +408,6 @@ def _prompt_next_engine(manifest_path: Path) -> None:
         typer.echo(f"  Then run:")
         typer.echo(f"    vne setup --manifest {manifest_path}")
         typer.echo()
-
-
-# ---------------------------------------------------------------------------
-# Commands
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -604,11 +570,6 @@ def reset(
     typer.echo("\nReset complete. Run 'vme deploy' to start fresh.")
 
 
-# ---------------------------------------------------------------------------
-# Images subcommands
-# ---------------------------------------------------------------------------
-
-
 @images_app.command("list")
 def images_list(
     config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c"),
@@ -667,11 +628,6 @@ def images_clean(
     typer.echo(f"Removed {removed} file(s).")
 
 
-# ---------------------------------------------------------------------------
-# Docker Compose helpers
-# ---------------------------------------------------------------------------
-
-
 def _run_compose(cfg: dict, cwd: Path, *, up: bool) -> None:
     interface = cfg.get("provisioning_interface", "")
     seed_ip   = cfg.get("seed_ip") or _get_interface_ip(interface) or "192.168.100.1"
@@ -693,11 +649,6 @@ def _run_compose(cfg: dict, cwd: Path, *, up: bool) -> None:
     if result.returncode != 0:
         typer.echo(f"[error] docker compose failed:\n{result.stderr}", err=True)
         raise typer.Exit(1)
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:

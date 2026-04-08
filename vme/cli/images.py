@@ -21,11 +21,6 @@ _UBUNTU_RELEASES_API = "https://api.launchpad.net/1.0/ubuntu/series"
 _UBUNTU_RELEASES_BASE = "https://releases.ubuntu.com/"
 
 
-# ---------------------------------------------------------------------------
-# Version resolution
-# ---------------------------------------------------------------------------
-
-
 def _resolve_proxmox_latest() -> tuple[str, str, str]:
     """Parse the Proxmox ISO directory listing and return (version, filename, sha256_url).
 
@@ -128,11 +123,6 @@ def _resolve_ubuntu_latest_lts() -> tuple[str, str, str]:
     )
 
 
-# ---------------------------------------------------------------------------
-# Download + verify
-# ---------------------------------------------------------------------------
-
-
 def _sha256_file(path: Path) -> str:
     """Compute hex SHA256 of a file."""
     h = hashlib.sha256()
@@ -196,11 +186,6 @@ def _download(url: str, dest: Path, progress: bool = True) -> None:
         tmp.rename(dest)
     except Exception:
         raise  # keep the .tmp file so the next run can resume
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 
 def cache_dir_for(config: dict) -> Path:
