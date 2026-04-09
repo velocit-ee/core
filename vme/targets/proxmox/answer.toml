@@ -14,8 +14,8 @@ fqdn = "${TARGET_HOSTNAME}.${TARGET_DOMAIN}"
 password = "${TARGET_ROOT_PASSWORD}"
 # Root's email address (used for cluster notifications).
 mailto = "${TARGET_EMAIL}"
-# Timezone.
-timezone = "Europe/Berlin"
+# Timezone — sourced from vme-config.yml target.timezone.
+timezone = "${TARGET_TIMEZONE}"
 
 [disk-setup]
 # Disk selection — use the target disk from vme-config.yml.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,10 +36,7 @@ def build_vme(
     started_at: datetime,
     completed_at: datetime,
 ) -> dict[str, Any]:
-    """Build a manifest from a completed VME deployment.
-
-    Raises ValueError if the produced manifest fails schema validation.
-    """
+    """Build a manifest from a completed VME deployment."""
     target = cfg.get("target", {})
     os_name = target.get("os", "")
     duration = (completed_at - started_at).total_seconds()
@@ -87,7 +85,10 @@ def write(manifest: dict[str, Any], output_dir: Path) -> Path:
     """Persist manifest to output_dir/<hostname>-<timestamp>.json."""
     output_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    filename = f"{manifest['target']['hostname']}-{ts}.json"
+    # Sanitize hostname: allow only alphanumerics and hyphens to prevent
+    # path traversal or invalid filenames.
+    hostname = re.sub(r"[^a-zA-Z0-9-]", "_", manifest["target"]["hostname"])
+    filename = f"{hostname}-{ts}.json"
     out_path = output_dir / filename
     with open(out_path, "w") as fh:
         json.dump(manifest, fh, indent=2)

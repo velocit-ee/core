@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
@@ -16,16 +17,13 @@ from .os_registry import OS_REGISTRY
 _DEFAULT_CACHE = Path("~/.velocitee/cache/images/").expanduser()
 
 # Public release index URLs — no version numbers hardcoded here.
-_PROXMOX_INDEX_URL = "http://download.proxmox.com/iso/"
+_PROXMOX_INDEX_URL = "https://download.proxmox.com/iso/"
 _UBUNTU_RELEASES_API = "https://api.launchpad.net/1.0/ubuntu/series"
 _UBUNTU_RELEASES_BASE = "https://releases.ubuntu.com/"
 
 
 def _resolve_proxmox_latest() -> tuple[str, str, str]:
-    """Parse the Proxmox ISO directory listing and return (version, filename, sha256_url).
-
-    Raises RuntimeError if the listing cannot be parsed or no ISO is found.
-    """
+    """Return (version, iso_url, sha256_url) for the latest Proxmox VE release."""
     resp = requests.get(_PROXMOX_INDEX_URL, timeout=30)
     resp.raise_for_status()
 
@@ -53,14 +51,9 @@ def _resolve_proxmox_latest() -> tuple[str, str, str]:
 
 
 def _resolve_ubuntu_latest_lts() -> tuple[str, str, str]:
-    """Resolve the latest Ubuntu LTS live-server ISO URL and checksum URL.
+    """Return (version, iso_url, sha256_url) for the latest Ubuntu LTS live-server ISO.
 
-    Tries the Launchpad API first to find the latest supported LTS series.
-    Falls back to probing known LTS versions directly on releases.ubuntu.com
-    if the API is unavailable.
-
-    Returns (version, iso_url, sha256_url).
-    Raises RuntimeError if no LTS release can be resolved.
+    Tries the Launchpad API first; falls back to probing known LTS versions if unavailable.
     """
     def _is_lts(version: str) -> bool:
         try:
@@ -104,8 +97,8 @@ def _resolve_ubuntu_latest_lts() -> tuple[str, str, str]:
                     return 0, 0
             lts_entries.sort(key=_lts_key, reverse=True)
             version = str(lts_entries[0]["version"])
-    except Exception:
-        pass  # API unavailable — fall through to probe known versions
+    except (requests.RequestException, ValueError, KeyError):
+        pass  # Launchpad API unavailable or malformed — fall through to known-version probe
 
     if version:
         return _scrape_iso(version)
@@ -114,7 +107,7 @@ def _resolve_ubuntu_latest_lts() -> tuple[str, str, str]:
     for candidate in ("26.04", "24.04", "22.04", "20.04"):
         try:
             return _scrape_iso(candidate)
-        except Exception:
+        except (requests.RequestException, RuntimeError):
             continue
 
     raise RuntimeError(
@@ -248,9 +241,10 @@ def ensure_image(os_name: str, config: dict) -> Path:
         print(f"  Checksum OK.")
     except RuntimeError:
         raise
-    except Exception as exc:
+    except requests.RequestException as exc:
+        # Checksum server unreachable — warn and keep the file rather than blocking.
         print(f"  Warning: could not fetch checksum ({exc})")
-        print(f"  Skipping verification — the downloaded file has been kept.")
+        print(f"  Skipping verification — run 'vme images pull' again to retry.")
     return dest
 
 
