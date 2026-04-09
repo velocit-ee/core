@@ -201,6 +201,78 @@ def _configure_firewall(interface: str) -> None:
         print(f"  Some rules may need to be added manually.")
 
 
+def _configure_nat(provisioning_interface: str) -> None:
+    """Enable IP forwarding + NAT so target machines can reach the internet.
+
+    Without this, apt-get update during Ubuntu autoinstall fails because
+    the target can't reach Ubuntu's package mirrors through the seed machine.
+    The rule is applied immediately and written to /etc/iptables/rules.v4
+    (if iptables-persistent is installed) for persistence across reboots.
+    """
+    # Find the interface that has a default route (internet-facing).
+    try:
+        result = subprocess.run(
+            ["ip", "route", "get", "8.8.8.8"],
+            capture_output=True, text=True, timeout=5,
+        )
+        wan_iface = None
+        for token in result.stdout.split():
+            if token == "dev":
+                wan_iface = result.stdout.split()[result.stdout.split().index("dev") + 1]
+                break
+    except Exception:
+        wan_iface = None
+
+    if not wan_iface or wan_iface == provisioning_interface:
+        print("\n  NAT: could not detect internet-facing interface — skipping.")
+        print("  Add manually if targets need internet access during install:")
+        print(f"    sudo iptables -t nat -A POSTROUTING -s <subnet>/24 -o <wan-iface> -j MASQUERADE")
+        return
+
+    # Check if a masquerade rule already exists.
+    check = subprocess.run(
+        ["sudo", "iptables", "-t", "nat", "-C", "POSTROUTING",
+         "-o", wan_iface, "-j", "MASQUERADE"],
+        capture_output=True,
+    )
+    if check.returncode == 0:
+        print(f"\n  NAT: masquerade rule already present (out: {wan_iface}).")
+        return
+
+    print(f"\n  NAT masquerade needed so targets can reach apt mirrors (out: {wan_iface}).")
+    if not _ask_yes("Enable NAT now?", default=True):
+        print("  Skipped. Targets will not have internet access during install.")
+        return
+
+    subprocess.run(
+        ["sudo", "iptables", "-t", "nat", "-A", "POSTROUTING",
+         "-o", wan_iface, "-j", "MASQUERADE"],
+        capture_output=True,
+    )
+    subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], capture_output=True)
+    print(f"  NAT enabled.")
+
+    # Persist if iptables-persistent is available.
+    save = subprocess.run(
+        ["sudo", "iptables-save"],
+        capture_output=True, text=True,
+    )
+    if save.returncode == 0:
+        import pathlib
+        rules_dir = pathlib.Path("/etc/iptables")
+        if rules_dir.exists():
+            rules_path = rules_dir / "rules.v4"
+            subprocess.run(
+                ["sudo", "tee", str(rules_path)],
+                input=save.stdout.encode(),
+                capture_output=True,
+            )
+            print(f"  NAT rule saved to {rules_path} (persists across reboots).")
+        else:
+            print("  Note: install iptables-persistent to persist this rule across reboots.")
+            print(f"    sudo apt install iptables-persistent")
+
+
 def _hash_password(plaintext: str) -> str:
     """Return a SHA-512 crypt hash of *plaintext* using openssl."""
     result = subprocess.run(
@@ -270,6 +342,7 @@ def run(config_path: Path) -> None:
     dhcp_end   = _ask("Last IP in that range",                  "192.168.100.200")
 
     _configure_firewall(interface)
+    _configure_nat(interface)
 
     _step(2, 5, "Target machine")
 
