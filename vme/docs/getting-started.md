@@ -285,12 +285,25 @@ vme preflight
 
 # See full compose logs during deployment (for troubleshooting)
 vme deploy --verbose
+```
 
-# Wipe everything and start fresh
+**Reset options:**
+
+```bash
+# Stop the seed stack and clear rendered config (keeps vme-config.yml and images)
 vme reset
 
-# Wipe everything including the downloaded OS images
+# Also delete cached OS images (~3–8 GB freed)
 vme reset --images
+
+# Also delete vme-config.yml (you'll need to re-run vme setup)
+vme reset --config-only
+
+# Delete absolutely everything — stack, run/, config, and images
+vme reset --full
+
+# Skip the confirmation prompt (useful in scripts)
+vme reset -y
 ```
 
 ---
@@ -320,3 +333,12 @@ Something else on the network is handing out IPs (often a router on the same swi
 
 **Boot loop after install**
 The target is still booting from the network. Go into BIOS and move Hard Disk above Network in the boot order.
+
+**apt-get hangs or Ubuntu autoinstall stalls at "Mirror configuration"**
+The target machine cannot reach the internet during install. VME needs NAT enabled on the seed machine so targets can reach Ubuntu's package mirrors. The setup wizard handles this automatically, but if it was skipped or the rule was lost on reboot:
+```bash
+# Replace wlo1 with your internet-facing interface (check with: ip route get 8.8.8.8)
+sudo iptables -t nat -A POSTROUTING -s 192.168.100.0/24 -o wlo1 -j MASQUERADE
+sudo ufw route allow in on <provisioning-interface> out on wlo1
+```
+This takes effect immediately — no need to restart VME or the target.
