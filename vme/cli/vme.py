@@ -306,22 +306,49 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
         dest.write_text(Template(src.read_text()).safe_substitute(subs))
 
 
+def _fmt_bytes(raw: str) -> str:
+    """Format a byte count string into a human-readable size."""
+    try:
+        b = int(raw)
+    except (ValueError, TypeError):
+        return raw
+    if b >= 1024 ** 3:
+        return f"{b / 1024 ** 3:.1f} GB"
+    if b >= 1024 ** 2:
+        return f"{b / 1024 ** 2:.1f} MB"
+    return f"{b / 1024:.0f} KB"
+
+
 # Events to surface in normal (non-verbose) mode.
 # Each entry: (regex, display_template, deduplicate)
-# display_template may reference named groups from the regex.
+# {1}, {2} ... are replaced with capture groups; {1B} formats group 1 as bytes.
 _LOG_EVENTS = [
+    # ── PXE boot ─────────────────────────────────────────────────────────────
     (re.compile(r'DHCPDISCOVER\(\S+\)\s+([\da-fA-F:]{17})'),
-     "Target discovered       MAC {1}", True),
-    (re.compile(r'DHCPACK\(\S+\)\s+(\d+\.\d+\.\d+\.\d+)\s+([\da-fA-F:]{17})'),
-     "DHCP lease granted      {1}  ({2})", True),
-    (re.compile(r'sent /tftp/undionly\.kpxe'),
-     "iPXE binary delivered   via TFTP", True),
+     "Target on network       MAC {1}", True),
+    (re.compile(r'DHCPACK\(\S+\)\s+(\d+\.\d+\.\d+\.\d+)\s+([\da-fA-F:]{17})\s*$'),
+     "DHCP lease assigned     {1}  ({2})", True),
+    (re.compile(r'sent /tftp/undionly\.kpxe to (\S+)'),
+     "iPXE bootloader sent    to {1} via TFTP", True),
     (re.compile(r'"GET /ipxe/boot\.ipxe[^"]*" 200'),
-     "Boot menu loaded        via HTTP", True),
-    (re.compile(r'"GET /images/([^"]+\.iso)[^"]*" 206'),
-     "OS image streaming      {1}", True),
+     "Boot menu loaded        via HTTP — selecting OS", True),
+    # ── Kernel + RAM disk (iPXE fetches these before handing off) ─────────────
+    (re.compile(r'"GET /boot/[^/]+/vmlinuz[^"]*" 200 (\d+)'),
+     "Kernel downloaded       {1B}", True),
+    (re.compile(r'"GET /boot/[^/]+/initrd[^"]*" 200 (\d+)'),
+     "RAM disk downloaded     {1B} — live installer booting", True),
+    # ── ISO download (nginx log line appears when transfer completes) ─────────
+    (re.compile(r'"GET /images/([^"]+\.iso)[^"]*" [25]\d\d (\d+)'),
+     "OS image downloaded     {1}  ({2B})", True),
+    # ── cloud-init autoinstall ────────────────────────────────────────────────
+    (re.compile(r'"GET /cloud-init/user-data[^"]*" 200'),
+     "Autoinstall config read — disk setup and packages starting", True),
+    # ── early-commands hook (fires just before disk work in Ubuntu autoinstall)
+    (re.compile(r'"GET /vme-install-running[^"]*"'),
+     "Installer active        disk partitioning and apt in progress", True),
+    # ── completion (handled separately — not printed here) ────────────────────
     (re.compile(r'vme-provision-complete'),
-     None, False),  # handled specially — not printed here
+     None, False),
 ]
 
 
@@ -331,6 +358,7 @@ def _format_event(pattern: re.Pattern, template: str, line: str) -> str | None:
         return None
     result = template
     for i, g in enumerate(m.groups(), 1):
+        result = result.replace(f"{{{i}B}}", _fmt_bytes(g or "0"))
         result = result.replace(f"{{{i}}}", g or "")
     return result
 
@@ -385,7 +413,9 @@ def _stream_deploy_logs(
                             break
                         msg = _format_event(pattern, template, line)
                         if msg:
-                            key = msg[:40]
+                            # Deduplicate on the template string (not the rendered message)
+                            # so variable parts like IPs don't prevent dedup.
+                            key = template
                             if dedup and key in shown:
                                 break
                             shown.add(key)
