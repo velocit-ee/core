@@ -131,16 +131,10 @@ def _get_interface_ip(name: str) -> Optional[str]:
 
 
 def _configure_firewall(interface: str) -> None:
-    """Check UFW state and open ports VME requires on *interface*.
+    """Open VME's required ports (67/udp, 69/udp, 80/tcp) on *interface* via ufw.
 
-    Ports needed:
-      67/udp  — DHCP (target machines request an IP)
-      69/udp  — TFTP (target machines download iPXE)
-      80/tcp  — HTTP (iPXE fetches boot script and OS image from nginx)
-
-    Silently skips if UFW is not installed or not active.
+    Silently skips if ufw is not installed or not active.
     """
-    # Check if ufw is available.
     try:
         status = subprocess.run(
             ["sudo", "ufw", "status"],
@@ -196,37 +190,34 @@ def _configure_firewall(interface: str) -> None:
 
     if all_ok:
         subprocess.run(["sudo", "ufw", "reload"], capture_output=True)
-        print(f"  Firewall updated.")
+        print("  Firewall updated.")
     else:
-        print(f"  Some rules may need to be added manually.")
+        print("  Some rules may need to be added manually.")
 
 
 def _configure_nat(provisioning_interface: str) -> None:
-    """Enable IP forwarding + NAT so target machines can reach the internet.
+    """Add a masquerade NAT rule so targets can reach the internet during install.
 
-    Without this, apt-get update during Ubuntu autoinstall fails because
-    the target can't reach Ubuntu's package mirrors through the seed machine.
-    The rule is applied immediately and written to /etc/iptables/rules.v4
-    (if iptables-persistent is installed) for persistence across reboots.
+    Without this, apt-get fails during Ubuntu autoinstall because the target
+    can't reach package mirrors through the seed machine.
     """
-    # Find the interface that has a default route (internet-facing).
+    # Find the internet-facing interface via the default route to 8.8.8.8.
+    wan_iface: Optional[str] = None
     try:
         result = subprocess.run(
             ["ip", "route", "get", "8.8.8.8"],
             capture_output=True, text=True, timeout=5,
         )
-        wan_iface = None
-        for token in result.stdout.split():
-            if token == "dev":
-                wan_iface = result.stdout.split()[result.stdout.split().index("dev") + 1]
-                break
-    except Exception:
-        wan_iface = None
+        m = re.search(r"\bdev\s+(\S+)", result.stdout)
+        if m:
+            wan_iface = m.group(1)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
 
     if not wan_iface or wan_iface == provisioning_interface:
         print("\n  NAT: could not detect internet-facing interface — skipping.")
         print("  Add manually if targets need internet access during install:")
-        print(f"    sudo iptables -t nat -A POSTROUTING -s <subnet>/24 -o <wan-iface> -j MASQUERADE")
+        print("    sudo iptables -t nat -A POSTROUTING -s <subnet>/24 -o <wan-iface> -j MASQUERADE")
         return
 
     # Check if a masquerade rule already exists.
@@ -250,7 +241,7 @@ def _configure_nat(provisioning_interface: str) -> None:
         capture_output=True,
     )
     subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], capture_output=True)
-    print(f"  NAT enabled.")
+    print("  NAT enabled.")
 
     # Persist if iptables-persistent is available.
     save = subprocess.run(
@@ -258,8 +249,7 @@ def _configure_nat(provisioning_interface: str) -> None:
         capture_output=True, text=True,
     )
     if save.returncode == 0:
-        import pathlib
-        rules_dir = pathlib.Path("/etc/iptables")
+        rules_dir = Path("/etc/iptables")
         if rules_dir.exists():
             rules_path = rules_dir / "rules.v4"
             subprocess.run(
@@ -270,7 +260,7 @@ def _configure_nat(provisioning_interface: str) -> None:
             print(f"  NAT rule saved to {rules_path} (persists across reboots).")
         else:
             print("  Note: install iptables-persistent to persist this rule across reboots.")
-            print(f"    sudo apt install iptables-persistent")
+            print("    sudo apt install iptables-persistent")
 
 
 def _hash_password(plaintext: str) -> str:
@@ -402,7 +392,12 @@ def run(config_path: Path) -> None:
         print("  Generate one with: ssh-keygen -t ed25519\n")
         ssh_key = _ask("Paste your SSH public key")
 
-    if not ssh_key:
+    _VALID_KEY_PREFIXES = ("ssh-rsa ", "ssh-ed25519 ", "ecdsa-sha2-nistp256 ", "ecdsa-sha2-nistp384 ", "ecdsa-sha2-nistp521 ", "sk-ssh-ed25519 ")
+    if ssh_key and not any(ssh_key.startswith(p) for p in _VALID_KEY_PREFIXES):
+        print("\n  [!] That doesn't look like a valid SSH public key.")
+        print("      Expected format: ssh-ed25519 AAAA... user@host")
+        print("      Saving anyway — double-check the key in vme-config.yml.\n")
+    elif not ssh_key:
         print("\n  [!] No SSH key provided. You will not be able to log in after provisioning.")
         print("      You can re-run `vme setup` to add one later.\n")
 

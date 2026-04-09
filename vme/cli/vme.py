@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
@@ -151,12 +152,10 @@ def _generate_boot_ipxe(
         boot_method = meta.get("boot_method", "sanboot")
 
         if boot_method == "kernel":
-            # Boot vmlinuz + initrd directly so we can pass iso-url= and autoinstall params.
-            # iso-url= tells casper where to download the live ISO (its squashfs root).
-            # We use iso-url= rather than url= because cloud-init 24.x probes url= as a
-            # datasource seed, causing it to download the full ISO a second time (~8 min delay).
-            # casper treats iso-url= identically to url= but cloud-init ignores it.
-            # ds=nocloud-net;s= tells cloud-init where to find user-data / meta-data.
+            # Boot vmlinuz+initrd directly so we can pass kernel cmdline args.
+            # iso-url= is used instead of url= because cloud-init 24.x probes url= as a
+            # datasource seed URL and re-downloads the ISO (~8 min delay). casper treats
+            # iso-url= identically; cloud-init ignores it.
             lines += [
                 f":{key}",
                 f"echo Booting {label} ...",
@@ -219,10 +218,9 @@ def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str) -> None:
         return  # already extracted from a previous run
 
     dest.mkdir(parents=True, exist_ok=True)
-    mnt = Path("/tmp/vme-iso-mount")
-    mnt.mkdir(exist_ok=True)
 
     typer.echo(f"  Extracting boot files from {iso_path.name} ...")
+    mnt = Path(tempfile.mkdtemp(prefix="vme-iso-"))
     try:
         result = subprocess.run(
             ["sudo", "mount", "-o", "loop,ro", str(iso_path), str(mnt)],
@@ -245,6 +243,7 @@ def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str) -> None:
                    f"{initrd.stat().st_size // (1024**2)} MB initrd).")
     finally:
         subprocess.run(["sudo", "umount", str(mnt)], capture_output=True)
+        mnt.rmdir()
 
 
 def _render_templates(cfg: dict, run_dir: Path) -> None:

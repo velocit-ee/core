@@ -199,7 +199,7 @@ def check_firewall(interface: str) -> CheckResult:
                 fix=f"sudo ufw allow in on {interface} to any port 80 proto tcp",
             )
         return CheckResult(name="firewall", passed=True, detail="ufw active; DHCP and HTTP ports appear open.")
-    except Exception:
+    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
         return CheckResult(name="firewall", passed=True, detail="Could not check firewall state.")
 
 
@@ -217,7 +217,7 @@ def check_tftp_port() -> CheckResult:
                 detail="Port 69 (TFTP) is already in use — likely tftpd-hpa or in.tftpd.",
                 fix="Run: sudo systemctl stop tftpd-hpa  (or: sudo kill $(pgrep in.tftpd))",
             )
-    except Exception:
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return CheckResult(name="tftp_port", passed=True, detail="Port 69 is available.")
 

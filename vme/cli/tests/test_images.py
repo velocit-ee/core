@@ -220,11 +220,17 @@ def test_resolve_ubuntu_picks_latest_lts():
             {"version": "23.10", "supported": False, "lts": False},
         ]
     }
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = api_response
-    mock_resp.raise_for_status = MagicMock()
+    # First call: Launchpad API (returns JSON); second call: ISO index page (returns HTML).
+    api_mock = MagicMock()
+    api_mock.json.return_value = api_response
+    api_mock.raise_for_status = MagicMock()
 
-    with patch("requests.get", return_value=mock_resp):
+    index_html = '<a href="ubuntu-24.04.4-live-server-amd64.iso">ubuntu-24.04.4-live-server-amd64.iso</a>'
+    index_mock = MagicMock()
+    index_mock.text = index_html
+    index_mock.raise_for_status = MagicMock()
+
+    with patch("cli.images.requests.get", side_effect=[api_mock, index_mock]):
         version, iso_url, sha256_url = img._resolve_ubuntu_latest_lts()
 
     assert version == "24.04"
@@ -232,11 +238,17 @@ def test_resolve_ubuntu_picks_latest_lts():
 
 
 def test_resolve_ubuntu_no_lts_raises():
+    # Launchpad API returns no supported LTS entries; all probe candidates fail.
     api_response = {"entries": [{"version": "23.10", "supported": False, "lts": False}]}
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = api_response
-    mock_resp.raise_for_status = MagicMock()
+    api_mock = MagicMock()
+    api_mock.json.return_value = api_response
+    api_mock.raise_for_status = MagicMock()
 
-    with patch("requests.get", return_value=mock_resp):
-        with pytest.raises(RuntimeError, match="No supported LTS"):
+    empty_mock = MagicMock()
+    empty_mock.text = "<html>no isos here</html>"
+    empty_mock.raise_for_status = MagicMock()
+
+    # api call + 4 probe candidates
+    with patch("cli.images.requests.get", side_effect=[api_mock] + [empty_mock] * 4):
+        with pytest.raises(RuntimeError, match="Could not resolve"):
             img._resolve_ubuntu_latest_lts()
