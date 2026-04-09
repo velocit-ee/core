@@ -615,13 +615,32 @@ def status(
 
 @app.command()
 def reset(
-    config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to vme-config.yml"),
-    include_images: bool = typer.Option(False, "--images", help="Also delete cached OS images."),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
+    config: Path        = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to vme-config.yml"),
+    include_config: bool = typer.Option(False, "--config-only", help="Also delete vme-config.yml (requires re-running vme setup)."),
+    include_images: bool = typer.Option(False, "--images",      help="Also delete cached OS images (~3–8 GB)."),
+    full:           bool = typer.Option(False, "--full",         help="Delete everything: stack, run/, config, and cached images."),
+    yes:            bool = typer.Option(False, "--yes", "-y",    help="Skip confirmation prompt."),
 ) -> None:
-    """Tear down all VME state and return to a clean install."""
+    """Tear down VME state.
+
+    By default removes the running seed stack and rendered run/ config,
+    leaving vme-config.yml and cached OS images intact so the next
+    'vme deploy' starts quickly.
+
+    \b
+    Flags:
+      --config-only   also delete vme-config.yml  (re-run 'vme setup' after)
+      --images        also delete cached OS images (~3-8 GB freed)
+      --full          delete everything (stack + run/ + config + images)
+    """
+    if full:
+        include_config = True
+        include_images = True
+
     cwd   = config.parent
     parts = ["seed stack containers and volumes", "rendered run/ config"]
+    if include_config:
+        parts.append("vme-config.yml  (requires re-running 'vme setup')")
     if include_images:
         parts.append("cached OS images")
 
@@ -632,10 +651,13 @@ def reset(
         typer.echo()
         typer.confirm("Continue?", abort=True)
 
+    # Load config now, before potentially deleting it, so image cache path is known.
+    cfg_dict = _load_config(config) if (include_images and config.exists()) else {}
+
     typer.echo("Stopping seed stack ...")
     subprocess.run(["docker", "compose", "down", "--volumes"], cwd=cwd, capture_output=True)
 
-    # Do NOT remove the vme-ipxe-build image — it contains only compiled iPXE
+    # The vme-ipxe-build image is NOT removed — it contains only compiled iPXE
     # binaries with no per-deployment state. Keeping it avoids a full rebuild
     # (and the Docker Hub pull it requires) on every reset+deploy cycle.
 
@@ -644,11 +666,16 @@ def reset(
         typer.echo("Clearing run/ ...")
         shutil.rmtree(run_dir)
 
-    if include_images and config.exists():
-        removed = img.clean_cache(_load_config(config))
+    if include_config and config.exists():
+        config.unlink()
+        typer.echo("Deleted vme-config.yml.")
+
+    if include_images and cfg_dict:
+        removed = img.clean_cache(cfg_dict)
         typer.echo(f"Removed {removed} cached image file(s).")
 
-    typer.echo("\nReset complete. Run 'vme deploy' to start fresh.")
+    next_cmd = "vme setup" if include_config else "vme deploy"
+    typer.echo(f"\nReset complete. Run '{next_cmd}' to start fresh.")
 
 
 @images_app.command("list")

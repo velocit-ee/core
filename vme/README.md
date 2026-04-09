@@ -65,7 +65,9 @@ VNE (phase 2) consumes this manifest to configure networking on the provisioned 
 
 ## status
 
-Phase 1, step 0 — in active development. The seed stack and iPXE chain are the current focus. No release yet.
+Phase 1 — **working, end-to-end tested.** VME successfully PXE boots a target, streams the OS image over the network, runs a fully unattended Ubuntu Server install, and shuts down the target when done. Proxmox VE install path is implemented; Ubuntu Server is confirmed working.
+
+See [docs/getting-started.md](docs/getting-started.md) to get started.
 
 Track progress in [issues](https://github.com/velocit-ee/core/issues).
 
