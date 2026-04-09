@@ -621,7 +621,7 @@ def reset(
 ) -> None:
     """Tear down all VME state and return to a clean install."""
     cwd   = config.parent
-    parts = ["seed stack containers and volumes", "built iPXE Docker image", "rendered run/ config"]
+    parts = ["seed stack containers and volumes", "rendered run/ config"]
     if include_images:
         parts.append("cached OS images")
 
@@ -635,8 +635,9 @@ def reset(
     typer.echo("Stopping seed stack ...")
     subprocess.run(["docker", "compose", "down", "--volumes"], cwd=cwd, capture_output=True)
 
-    typer.echo("Removing built Docker image ...")
-    subprocess.run(["docker", "rmi", "vme-ipxe-build"], capture_output=True)
+    # Do NOT remove the vme-ipxe-build image — it contains only compiled iPXE
+    # binaries with no per-deployment state. Keeping it avoids a full rebuild
+    # (and the Docker Hub pull it requires) on every reset+deploy cycle.
 
     run_dir = cwd / "run"
     if run_dir.exists():

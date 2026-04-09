@@ -59,5 +59,5 @@ RUN mkdir -p /out && \
 # Final stage — just the built files.
 # docker-compose copies them to the nginx tftp/ipxe volume.
 # ---------------------------------------------------------------------------
-FROM busybox AS artifacts
+FROM debian:bookworm-slim AS artifacts
 COPY --from=builder /out/ /
