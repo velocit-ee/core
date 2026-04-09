@@ -151,8 +151,11 @@ def _generate_boot_ipxe(
         boot_method = meta.get("boot_method", "sanboot")
 
         if boot_method == "kernel":
-            # Boot vmlinuz + initrd directly so we can pass url= and autoinstall params.
-            # The url= kernel arg tells the live initrd where to find the ISO (its squashfs root).
+            # Boot vmlinuz + initrd directly so we can pass iso-url= and autoinstall params.
+            # iso-url= tells casper where to download the live ISO (its squashfs root).
+            # We use iso-url= rather than url= because cloud-init 24.x probes url= as a
+            # datasource seed, causing it to download the full ISO a second time (~8 min delay).
+            # casper treats iso-url= identically to url= but cloud-init ignores it.
             # ds=nocloud-net;s= tells cloud-init where to find user-data / meta-data.
             lines += [
                 f":{key}",
@@ -161,7 +164,7 @@ def _generate_boot_ipxe(
                 f"initrd ${{nginx}}/boot/{slug}/initrd",
                 (
                     f"imgargs vmlinuz initrd=initrd ip=dhcp"
-                    f" fetch=${{nginx}}/boot/{slug}/filesystem.squashfs"
+                    f" iso-url=${{nginx}}/images/{iso.name}"
                     f" autoinstall ds=nocloud-net${{sc:string}}s=${{nginx}}/cloud-init/"
                 ),
                 "boot || goto failed",
@@ -237,18 +240,6 @@ def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str) -> None:
 
         shutil.copy2(src_vmlinuz, vmlinuz)
         shutil.copy2(src_initrd, initrd)
-
-        # Also extract the squashfs so we can use fetch= instead of url=.
-        # fetch= tells casper to download just the squashfs; cloud-init has no fetch= datasource
-        # so it won't try to download the 3 GB ISO on its own.
-        squashfs_rel = meta.get("squashfs_path")
-        if squashfs_rel:
-            squashfs = dest / "filesystem.squashfs"
-            src_squashfs = mnt / squashfs_rel
-            if not squashfs.exists() and src_squashfs.exists():
-                squashfs_mb = src_squashfs.stat().st_size // (1024**2)
-                typer.echo(f"  Copying filesystem.squashfs ({squashfs_mb} MB) ...")
-                shutil.copy2(src_squashfs, squashfs)
 
         typer.echo(f"  Boot files extracted ({vmlinuz.stat().st_size // (1024**2)} MB kernel, "
                    f"{initrd.stat().st_size // (1024**2)} MB initrd).")
