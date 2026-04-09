@@ -17,13 +17,12 @@ OS_REGISTRY: dict[str, dict] = {
         "boot_method": "sanboot",    # sanboot = HTTP ISO block device; no memdisk
     },
     "ubuntu-server": {
-        "label":          "Ubuntu Server LTS (latest)",
-        "menu_key":       "ubuntu",
-        "iso_pattern":    "ubuntu-*-live-server-amd64.iso",
-        "boot_method":    "kernel",
-        "kernel_path":    "casper/vmlinuz",
-        "initrd_path":    "casper/initrd",
-        "squashfs_path":  "casper/filesystem.squashfs",  # served via fetch= instead of url=
+        "label":       "Ubuntu Server LTS (latest)",
+        "menu_key":    "ubuntu",
+        "iso_pattern": "ubuntu-*-live-server-amd64.iso",
+        "boot_method": "kernel",
+        "kernel_path": "casper/vmlinuz",
+        "initrd_path": "casper/initrd",
     },
 }
 
