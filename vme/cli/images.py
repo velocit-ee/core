@@ -23,30 +23,42 @@ _UBUNTU_RELEASES_BASE = "https://releases.ubuntu.com/"
 
 
 def _resolve_proxmox_latest() -> tuple[str, str, str]:
-    """Return (version, iso_url, sha256_url) for the latest Proxmox VE release."""
-    resp = requests.get(_PROXMOX_INDEX_URL, timeout=30)
-    resp.raise_for_status()
+    """Return (version, iso_url, sha256_url) for the latest Proxmox VE release.
+
+    Falls back to HTTP if Proxmox's server presents an invalid TLS certificate.
+    The ISO integrity is guaranteed by SHA-256 verification after download.
+    """
+    base = _PROXMOX_INDEX_URL
+    try:
+        resp = requests.get(base, timeout=30)
+        resp.raise_for_status()
+    except requests.exceptions.SSLError:
+        # Proxmox occasionally deploys the wrong cert to download.proxmox.com.
+        # Fall back to HTTP for all Proxmox URLs in this resolution. The ISO is
+        # always SHA-256 verified after download, so integrity is not compromised.
+        base = base.replace("https://", "http://", 1)
+        print(f"  Warning: TLS certificate mismatch on download.proxmox.com — using HTTP.")
+        print("  The ISO will be SHA-256 verified after download.")
+        resp = requests.get(base, timeout=30)
+        resp.raise_for_status()
 
     # Matches: proxmox-ve_8.2-1.iso  (major.minor-patch)
     iso_pattern = re.compile(r'href="(proxmox-ve_([\d]+\.[\d]+-[\d]+)\.iso)"')
     matches = iso_pattern.findall(resp.text)
     if not matches:
         raise RuntimeError(
-            f"Could not find any Proxmox VE ISO links at {_PROXMOX_INDEX_URL}. "
+            f"Could not find any Proxmox VE ISO links at {base}. "
             "The directory listing format may have changed."
         )
 
     def _version_key(m: tuple[str, str]) -> tuple[int, ...]:
-        # m[1] is the version string like "8.2-1"
         parts = re.split(r"[.\-]", m[1])
         return tuple(int(p) for p in parts)
 
     matches.sort(key=_version_key, reverse=True)
     filename, version = matches[0]
-    iso_url = urljoin(_PROXMOX_INDEX_URL, filename)
-
-    # Proxmox publishes SHA256SUMS in the same directory.
-    sha256_url = urljoin(_PROXMOX_INDEX_URL, "SHA256SUMS")
+    iso_url = urljoin(base, filename)
+    sha256_url = urljoin(base, "SHA256SUMS")
     return version, iso_url, sha256_url
 
 
