@@ -131,7 +131,12 @@ def _get_interface_ip(name: str) -> Optional[str]:
 
 
 def _configure_firewall(interface: str) -> None:
-    """Open VME's required ports (67/udp, 69/udp, 80/tcp) on *interface* via ufw.
+    """Allow all inbound traffic on *interface* via ufw.
+
+    A blanket interface rule is required — port-specific rules break TFTP because
+    the server sends data from an ephemeral source port and the client's ACKs back
+    to that port would be blocked.  The provisioning interface is isolated to the
+    local install switch, so allowing all inbound is safe.
 
     Silently skips if ufw is not installed or not active.
     """
@@ -146,53 +151,31 @@ def _configure_firewall(interface: str) -> None:
     if "Status: active" not in status.stdout:
         return  # ufw installed but inactive — no rules needed
 
-    out = status.stdout
-
-    # Determine which ports are missing.
-    iface_blanket = f"on {interface}" in out
-    missing: list[tuple[str, str, str]] = []
-
-    if not iface_blanket:
-        if ":67" not in out and "67/udp" not in out:
-            missing.append(("67", "udp", "DHCP"))
-        if ":69" not in out and "69/udp" not in out:
-            missing.append(("69", "udp", "TFTP"))
-        if ":80" not in out and "80/tcp" not in out and "Nginx" not in out:
-            missing.append(("80", "tcp", "HTTP"))
-
-    if not missing:
-        print(f"\n  Firewall: required ports already open on {interface}.")
+    # Check for an existing blanket allow-in rule for this interface.
+    # ufw status output includes lines like "Anywhere on eno2  ALLOW IN  Anywhere"
+    if f"on {interface}" in status.stdout and "ALLOW IN" in status.stdout:
+        print(f"\n  Firewall: {interface} already has an allow-in rule.")
         return
 
-    print(f"\n  UFW is active. The following ports need to be opened on {interface}:")
-    for port, proto, service in missing:
-        print(f"    {port}/{proto}  ({service})")
+    print(f"\n  UFW is active. VME needs to allow all inbound traffic on {interface}.")
+    print(f"  (TFTP uses ephemeral ports — a blanket interface rule is required.)")
 
-    open_now = _ask_yes("Open these ports now?", default=True)
+    open_now = _ask_yes(f"Allow all inbound on {interface}?", default=True)
     if not open_now:
-        print("\n  Skipped. Add the rules manually before running 'vme deploy':")
-        for port, proto, _ in missing:
-            print(f"    sudo ufw allow in on {interface} to any port {port} proto {proto}")
+        print(f"\n  Skipped. Add the rule manually before running 'vme deploy':")
+        print(f"    sudo ufw allow in on {interface}")
         return
 
-    all_ok = True
-    for port, proto, service in missing:
-        result = subprocess.run(
-            ["sudo", "ufw", "allow", "in", "on", interface, "to", "any",
-             "port", port, "proto", proto],
-            capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            print(f"  Opened {port}/{proto} ({service}).")
-        else:
-            print(f"  [!] Could not open {port}/{proto}: {result.stderr.strip()}")
-            all_ok = False
-
-    if all_ok:
+    result = subprocess.run(
+        ["sudo", "ufw", "allow", "in", "on", interface],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
         subprocess.run(["sudo", "ufw", "reload"], capture_output=True)
-        print("  Firewall updated.")
+        print(f"  Firewall updated — all inbound allowed on {interface}.")
     else:
-        print("  Some rules may need to be added manually.")
+        print(f"  [!] Could not add rule: {result.stderr.strip()}")
+        print(f"  Add manually:  sudo ufw allow in on {interface}")
 
 
 def _configure_nat(provisioning_interface: str) -> None:

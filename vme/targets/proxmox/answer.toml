@@ -1,49 +1,23 @@
-# Proxmox VE unattended answer file (proxmox-ve 8.x+)
-# Used with: proxmox-ve-8.x-installer --answer-file answer.toml
+# Proxmox VE unattended answer file (proxmox-ve 8.x / 9.x)
 # Values are templated by VME at deploy time from vme-config.yml.
 # See: https://pve.proxmox.com/wiki/Automated_Installation
 
 [global]
-# Keyboard layout.
 keyboard = "en-us"
-# Country used for mirror selection — does not affect install behavior.
 country = "de"
-# Fully qualified domain name.
 fqdn = "${TARGET_HOSTNAME}.${TARGET_DOMAIN}"
-# Root password — must be set via vme-config.yml; never hardcoded here.
-password = "${TARGET_ROOT_PASSWORD}"
-# Root's email address (used for cluster notifications).
+root-password = "${TARGET_ROOT_PASSWORD}"
 mailto = "${TARGET_EMAIL}"
-# Timezone — sourced from vme-config.yml target.timezone.
 timezone = "${TARGET_TIMEZONE}"
 
 [disk-setup]
-# Disk selection — use the target disk from vme-config.yml.
-disk_list = ["${TARGET_DISK}"]
-# Filesystem for the root partition.
 filesystem = "ext4"
-# No ZFS by default — the user can override.
-# zfs = { raid = "single" }
-# Disable SWAPS.
+disk-list = ["${TARGET_DISK}"]
 swapsize = 0
 
 [network]
-# Static IP configuration sourced from vme-config.yml.
 source = "from-answer"
 cidr = "${TARGET_IP}/${TARGET_PREFIX}"
 dns = "${TARGET_DNS}"
 gateway = "${TARGET_GATEWAY}"
-# Management interface — VME selects the first NIC unless overridden.
-interface-filter = "${TARGET_NIC}"
-
-[post-install]
-# Commands run once, chrooted into the installed system.
-commands = [
-  # Disable the subscription nag screen.
-  "sed -i.bak 's|^deb http://enterprise.proxmox.com|#deb http://enterprise.proxmox.com|g' /etc/apt/sources.list.d/pve-enterprise.list",
-  "echo 'deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription' > /etc/apt/sources.list.d/pve-no-subscription.list",
-  # Inject the operator's SSH public key.
-  "mkdir -p /root/.ssh && chmod 700 /root/.ssh",
-  "echo '${TARGET_SSH_PUBLIC_KEY}' >> /root/.ssh/authorized_keys",
-  "chmod 600 /root/.ssh/authorized_keys",
-]
+filter = "${TARGET_NIC}"

@@ -51,6 +51,7 @@ services:
       - ./seed/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ipxe_bins:/srv/ipxe:ro
       - ./run/cloud-init:/srv/cloud-init:ro
+      - ./run/proxmox:/srv/proxmox:ro
       - ./run/boot:/srv/boot:ro
       - ${IMAGE_CACHE_DIR:-~/.velocitee/cache/images}:/srv/images:ro
     depends_on:
