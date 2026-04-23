@@ -11,10 +11,12 @@ from pathlib import Path
 
 OS_REGISTRY: dict[str, dict] = {
     "proxmox-ve": {
-        "label": "Proxmox VE (latest stable)",
-        "menu_key": "proxmox",       # short token used in iPXE :labels and choose
+        "label":       "Proxmox VE (latest stable)",
+        "menu_key":    "proxmox",
         "iso_pattern": "proxmox-ve_*.iso",
-        "boot_method": "sanboot",    # sanboot = HTTP ISO block device; no memdisk
+        "boot_method": "kernel",
+        "kernel_path": "boot/linux26",
+        "initrd_path": "boot/initrd.img",
     },
     "ubuntu-server": {
         "label":       "Ubuntu Server LTS (latest)",

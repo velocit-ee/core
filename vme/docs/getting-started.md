@@ -314,13 +314,21 @@ vme reset -y
 VME's DHCP server didn't respond. Check:
 - `vme deploy` is still running
 - Both machines are on the same switch
-- The firewall allows port 67/udp on the provisioning interface. The setup wizard handles this, but if you skipped it: `sudo ufw allow in on <interface> to any port 67 proto udp`
+- The firewall allows inbound traffic on the provisioning interface. The setup wizard handles this, but if you skipped it: `sudo ufw allow in on <interface>`
+
+**Target gets a DHCP lease but TFTP times out**
+A port-specific rule for 69/udp is not enough. TFTP sends data from a random ephemeral source port, and UFW blocks the client's ACKs back to that port. The fix is a blanket interface rule:
+```bash
+sudo ufw allow in on <interface>
+sudo ufw reload
+```
+The provisioning interface is isolated to your install switch, so allowing all inbound is safe.
 
 **Pre-flight fails with "Port 69 (TFTP) is already in use"**
 Another TFTP server is running. Stop it: `sudo systemctl stop tftpd-hpa`
 
 **Pre-flight fails with "ufw is active but port 67 or 80 may be blocked"**
-The setup wizard normally opens these automatically. Run the commands shown in the preflight output. VME needs 67/udp (DHCP), 69/udp (TFTP), and 80/tcp (HTTP).
+The setup wizard adds a blanket allow-in rule for the provisioning interface. Run it if you skipped setup: `sudo ufw allow in on <interface>`
 
 **Target shows "No boot device" or "PXE-E53"**
 Not reaching VME — check both machines are on the same switch and `vme deploy` is running.

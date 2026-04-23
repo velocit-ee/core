@@ -151,8 +151,28 @@ def _generate_boot_ipxe(
         meta = OS_REGISTRY.get(slug, {})
         boot_method = meta.get("boot_method", "sanboot")
 
-        if boot_method == "kernel":
-            # Boot vmlinuz+initrd directly so we can pass kernel cmdline args.
+        if boot_method == "kernel" and slug == "proxmox-ve":
+            # Proxmox VE: kernel+initrd boot with HTTP ISO fetch.
+            # pve_iso_url= is read by our initrd patch to download the ISO.
+            # proxmox-start-auto-installer triggers the unattended installer.
+            # The answer file is embedded directly in the initrd (from-iso mode).
+            lines += [
+                f":{key}",
+                f"echo Booting {label} ...",
+                f"kernel ${{nginx}}/boot/{slug}/vmlinuz",
+                f"initrd ${{nginx}}/boot/{slug}/initrd",
+                (
+                    f"imgargs vmlinuz initrd=initrd"
+                    f" ro ramdisk_size=16777216 rw quiet splash=silent"
+                    f" pve_iso_url=${{nginx}}/images/{iso.name}"
+                    f" proxmox-start-auto-installer"
+                ),
+                "boot || goto failed",
+                "",
+            ]
+        elif boot_method == "kernel":
+            # Ubuntu (and future Ubuntu-like): boot vmlinuz+initrd directly so
+            # we can pass kernel cmdline args.
             # iso-url= is used instead of url= because cloud-init 24.x probes url= as a
             # datasource seed URL and re-downloads the ISO (~8 min delay). casper treats
             # iso-url= identically; cloud-init ignores it.
@@ -199,12 +219,214 @@ def _generate_boot_ipxe(
     return "\n".join(lines)
 
 
-def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str) -> None:
+# ---------------------------------------------------------------------------
+# Shell fragments injected into the Proxmox initrd /init at deploy time.
+# Patch 1: inserted before  initrdisoimage="/proxmox.iso"
+# Patch 2: inserted before  BASE_SQFS="/mnt/$PRODUCT_LC-base.squashfs"
+# ---------------------------------------------------------------------------
+_PVE_ISO_PATCH = (
+    '# VME: fetch ISO from seed nginx on pve_iso_url= kernel param\n'
+    '_pve_iso_url=\n'
+    'for _par in $(cat /proc/cmdline); do\n'
+    '    case $_par in\n'
+    '        pve_iso_url=*) _pve_iso_url="${_par#pve_iso_url=}" ;;\n'
+    '    esac\n'
+    'done\n'
+    'if [ -n "$_pve_iso_url" ]; then\n'
+    # Load NIC drivers bundled from pve-installer.squashfs so VMware VMs
+    # get a network interface.  Tries e1000, e1000e, and vmxnet3.
+    # Verbose output so we can see whether modules are found and load cleanly.
+    '    echo "VME: loading NIC drivers ..."\n'
+    '    for _ko in'
+    ' /lib/modules/*/kernel/drivers/net/ethernet/intel/e1000/e1000.ko'
+    ' /lib/modules/*/kernel/drivers/net/ethernet/intel/e1000e/e1000e.ko'
+    ' /lib/modules/*/kernel/drivers/net/vmxnet3/vmxnet3.ko; do\n'
+    '        if [ -f "$_ko" ]; then\n'
+    '            _err=$(/sbin/modprobe "$_ko" 2>&1) && echo "VME: loaded $(basename $_ko)"'
+    ' || echo "VME: [warn] modprobe $(basename $_ko) failed: $_err"\n'
+    '        else\n'
+    '            echo "VME: [warn] module not found: $_ko"\n'
+    '        fi\n'
+    '    done\n'
+    '    sleep 1\n'
+    '    echo "VME: NICs in /sys/class/net: $(ls /sys/class/net/ 2>/dev/null | tr "\\n" " ")"\n'
+    # Derive seed IP from the URL (http://SEED_IP/...) and assign a static
+    # address in the same /24.  No DHCP needed — we know the network layout.
+    '    _seed="${_pve_iso_url#http://}"; _seed="${_seed%%/*}"\n'
+    '    _net="${_seed%.*}"\n'
+    '    _my_ip="${_net}.99"\n'
+    '    echo "VME: configuring network (seed=$_seed, self=$_my_ip) ..."\n'
+    '    _iface=; _w=0\n'
+    '    while [ -z "$_iface" ] && [ "$_w" -lt 10 ]; do\n'
+    '        _iface=$(ls /sys/class/net/ 2>/dev/null | grep -v "^lo$" | head -1)\n'
+    '        [ -z "$_iface" ] && sleep 1\n'
+    '        _w=$((_w+1))\n'
+    '    done\n'
+    '    if [ -n "$_iface" ]; then\n'
+    '        ip link set "$_iface" up 2>/dev/null\n'
+    '        sleep 1\n'
+    '        ip addr add "${_my_ip}/24" dev "$_iface" 2>/dev/null\n'
+    '        ip route add default via "$_seed" 2>/dev/null\n'
+    '        echo "VME: network ready on $_iface"\n'
+    '    else\n'
+    '        echo "VME: [warn] no NIC found after driver load, download will fail"\n'
+    '    fi\n'
+    '    echo "VME: fetching Proxmox ISO (timeout=60s) ..."\n'
+    '    if wget -q --timeout=60 -O /proxmox.iso "$_pve_iso_url"; then\n'
+    '        echo "VME: ISO downloaded OK"\n'
+    '    else\n'
+    '        echo "VME: [warn] ISO download failed (exit $?), will try block device scan"\n'
+    '        rm -f /proxmox.iso\n'
+    '    fi\n'
+    'fi\n'
+    '\n'
+)
+
+def _make_pve_ans_patch(answer_toml: str) -> str:
+    """Return the shell fragment that replaces the stock cdrom bind mount.
+
+    Mounts /cdrom as an overlay whose upper dir is on /mnt/.workdir — the
+    installer's own tmpfs, which survives switch_root (unlike /tmp/ which is
+    on the initrd root tmpfs and is freed by switch_root).
+
+    Writes auto-installer-mode.toml (mode = "from-iso") and the fully-rendered
+    answer.toml directly into the upper dir so no HTTP fetch is required from
+    the installer.  Falls back to a plain bind mount when called without an
+    answer (should never happen in normal use).
+    """
+    if not answer_toml:
+        # No answer content — plain bind mount (no unattended install)
+        return (
+            '    if ! mount --bind /mnt /mnt/.installer-mp/cdrom; then\n'
+            '        debugsh_err_reboot "bind mount cdrom failed"\n'
+            '    fi\n'
+        )
+
+    return (
+        '# VME: mount /cdrom as overlay; embed answer.toml (from-iso mode).\n'
+        '# Upper dir on /mnt/.workdir (installer tmpfs) — survives switch_root.\n'
+        '_vme_cdrom_done=0\n'
+        'mkdir -p /mnt/.workdir/cdrom-upper /mnt/.workdir/cdrom-work\n'
+        "printf 'mode = \"iso\"\\n'"
+        ' > /mnt/.workdir/cdrom-upper/auto-installer-mode.toml\n'
+        'cat > /mnt/.workdir/cdrom-upper/answer.toml << \'VME_ANSWER_EOF\'\n'
+        + answer_toml.rstrip("\n") + "\n"
+        + 'VME_ANSWER_EOF\n'
+        'if mount -t overlay overlay'
+        ' -o "lowerdir=/mnt,upperdir=/mnt/.workdir/cdrom-upper,workdir=/mnt/.workdir/cdrom-work"'
+        ' /mnt/.installer-mp/cdrom 2>/dev/null; then\n'
+        '    echo "VME: answer file injected (from-iso mode)"\n'
+        '    _vme_cdrom_done=1\n'
+        'else\n'
+        '    echo "VME: [warn] cdrom overlay failed, auto-install will not be unattended"\n'
+        'fi\n'
+        'if [ "$_vme_cdrom_done" -eq 0 ]; then\n'
+        '    if ! mount --bind /mnt /mnt/.installer-mp/cdrom; then\n'
+        '        debugsh_err_reboot "bind mount cdrom failed"\n'
+        '    fi\n'
+        'fi\n'
+    )
+
+
+def _patch_proxmox_initrd(
+    initrd_path: Path,
+    nic_modules: list[tuple[Path, Path]],
+    answer_toml: str = "",
+) -> None:
+    """Patch the Proxmox initrd to support PXE boot with unattended install.
+
+    1. Bundle NIC driver .ko files (e1000, e1000e, vmxnet3) from the
+       pve-installer squashfs so VMware VMs get a network interface in initrd.
+
+    2. Inject two shell fragments into /init:
+
+       a. Before  initrdisoimage="/proxmox.iso":
+          Load NIC drivers, assign a static IP derived from pve_iso_url=,
+          then wget the ISO to /proxmox.iso so the existing path finds it.
+
+       b. Replaces  mount --bind /mnt /mnt/.installer-mp/cdrom:
+          Mounts /cdrom as an overlay with auto-installer-mode.toml (from-iso)
+          and the rendered answer.toml embedded in the upper dir.  The upper
+          dir is on the installer's workdir tmpfs so it survives switch_root.
+    """
+    typer.echo("  Patching Proxmox initrd (NIC drivers + embedded answer) ...")
+    work_dir = Path(tempfile.mkdtemp(prefix="vme-pve-"))
+    try:
+        rootfs   = work_dir / "rootfs"
+        rootfs.mkdir()
+        cpio_raw = work_dir / "initrd.cpio"
+        cpio_new = work_dir / "initrd-patched.cpio"
+
+        # 1. Decompress zstd → raw cpio
+        r = subprocess.run(
+            ["zstd", "-d", str(initrd_path), "-o", str(cpio_raw), "-f"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"zstd decompress failed: {r.stderr.strip()}")
+
+        # 2. Extract cpio (device-node mknod errors in /dev are expected and harmless)
+        with open(cpio_raw, "rb") as fh:
+            subprocess.run(["cpio", "-id"], stdin=fh, cwd=rootfs, capture_output=True)
+
+        # 3. Bundle NIC modules at the path the init patch expects.
+        # nic_modules is list of (staged_src, dest_rel_inside_initrd) where
+        # dest_rel is relative to the initrd root (e.g.
+        # lib/modules/6.17.2-1-pve/kernel/drivers/net/ethernet/intel/e1000/e1000.ko).
+        for src, dest_rel in nic_modules:
+            dest = rootfs / dest_rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            typer.echo(f"  Bundled NIC module: {src.name} → {dest_rel}")
+
+        # 4. Patch /init
+        init_path = rootfs / "init"
+        text = init_path.read_text()
+
+        anchor1 = 'initrdisoimage="/proxmox.iso"'
+        if anchor1 not in text:
+            raise RuntimeError(f"Patch point 1 not found in Proxmox initrd /init ({anchor1!r})")
+        text = text.replace(anchor1, _PVE_ISO_PATCH + anchor1, 1)
+
+        # Anchor 2: replace the stock cdrom bind mount with our overlay patch.
+        anchor2 = (
+            '    if ! mount --bind /mnt /mnt/.installer-mp/cdrom; then\n'
+            '        debugsh_err_reboot "bind mount cdrom failed"\n'
+            '    fi\n'
+        )
+        if anchor2 not in text:
+            raise RuntimeError(f"Patch point 2 not found in Proxmox initrd /init ({anchor2!r})")
+        text = text.replace(anchor2, _make_pve_ans_patch(answer_toml), 1)
+
+        init_path.write_text(text)
+
+        # 5. Repack cpio and recompress with zstd
+        r = subprocess.run(
+            f"find . -print0 | cpio --null -o --format=newc | zstd -f -3 -o {cpio_new}",
+            shell=True, cwd=rootfs, capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"cpio/zstd repack failed: {r.stderr.strip()}")
+
+        shutil.copy2(cpio_new, initrd_path)
+        typer.echo(
+            f"  Proxmox initrd patched "
+            f"({initrd_path.stat().st_size // (1024 ** 2)} MB, "
+            f"NIC drivers + HTTP ISO + answer fetch enabled)."
+        )
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str, answer_toml: str = "") -> None:
     """Mount an ISO and copy the kernel + initrd into boot_dir/slug/.
 
     Ubuntu's live initrd needs to be booted directly (not via sanboot) so we
     can pass url= and autoinstall params on the kernel cmdline. This extracts
     the right files from the ISO at deploy time.
+
+    For Proxmox VE the initrd is additionally patched by _patch_proxmox_initrd
+    to support HTTP ISO and answer-file delivery.
     """
     meta = OS_REGISTRY.get(slug, {})
     kernel_rel = meta.get("kernel_path", "casper/vmlinuz")
@@ -215,7 +437,7 @@ def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str) -> None:
     initrd  = dest / "initrd"
 
     if vmlinuz.exists() and initrd.exists():
-        return  # already extracted from a previous run
+        return  # already extracted (and patched, for Proxmox) from a previous run
 
     dest.mkdir(parents=True, exist_ok=True)
 
@@ -238,12 +460,53 @@ def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str) -> None:
 
         shutil.copy2(src_vmlinuz, vmlinuz)
         shutil.copy2(src_initrd, initrd)
+        # ISO files are often read-only; ensure we can patch the initrd below.
+        vmlinuz.chmod(0o644)
+        initrd.chmod(0o644)
 
         typer.echo(f"  Boot files extracted ({vmlinuz.stat().st_size // (1024**2)} MB kernel, "
                    f"{initrd.stat().st_size // (1024**2)} MB initrd).")
+
+        # For Proxmox: extract NIC modules from pve-installer.squashfs while
+        # the ISO is still mounted so we can bundle them into the initrd.
+        # list of (staged_src, dest_rel_inside_initrd)
+        nic_modules: list[tuple[Path, Path]] = []
+        if slug == "proxmox-ve":
+            sq_mnt = Path(tempfile.mkdtemp(prefix="vme-sq-"))
+            try:
+                r2 = subprocess.run(
+                    ["sudo", "mount", "-o", "loop,ro",
+                     str(mnt / "pve-installer.squashfs"), str(sq_mnt)],
+                    capture_output=True, text=True,
+                )
+                if r2.returncode == 0:
+                    for pattern in [
+                        "usr/lib/modules/*/kernel/drivers/net/ethernet/intel/e1000/e1000.ko",
+                        "usr/lib/modules/*/kernel/drivers/net/ethernet/intel/e1000e/e1000e.ko",
+                        "usr/lib/modules/*/kernel/drivers/net/vmxnet3/vmxnet3.ko",
+                    ]:
+                        found = list(sq_mnt.glob(pattern))
+                        if found:
+                            # Copy out before unmounting — use dest as staging area
+                            staged = dest / found[0].name
+                            shutil.copy2(found[0], staged)
+                            staged.chmod(0o644)
+                            # Preserve path from lib/modules/... onward so the
+                            # insmod glob inside the patched init resolves it.
+                            dest_rel = found[0].relative_to(sq_mnt / "usr")
+                            nic_modules.append((staged, dest_rel))
+                else:
+                    typer.echo("  [warn] Could not mount pve-installer.squashfs; "
+                               "NIC modules will not be bundled.")
+            finally:
+                subprocess.run(["sudo", "umount", str(sq_mnt)], capture_output=True)
+                sq_mnt.rmdir()
     finally:
         subprocess.run(["sudo", "umount", str(mnt)], capture_output=True)
         mnt.rmdir()
+
+    if slug == "proxmox-ve":
+        _patch_proxmox_initrd(initrd, nic_modules, answer_toml=answer_toml)
 
 
 def _render_templates(cfg: dict, run_dir: Path) -> None:
@@ -254,19 +517,6 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
 
     cache_dir = img.cache_dir_for(cfg)
     entries   = cached_entries(cache_dir)
-
-    # For OSes that boot via kernel+initrd, extract those files from the ISO now
-    # so nginx can serve them. The mount point needs sudo because loop devices do.
-    boot_dir = run_dir / "boot"
-    for slug, _key, _label, iso_path in entries:
-        meta = OS_REGISTRY.get(slug, {})
-        if meta.get("boot_method") == "kernel":
-            _extract_boot_files(iso_path, boot_dir, slug)
-
-    boot_ipxe = _generate_boot_ipxe(seed_ip, entries, default_slug=os_name)
-    boot_dest = run_dir / "ipxe" / "boot.ipxe"
-    boot_dest.parent.mkdir(parents=True, exist_ok=True)
-    boot_dest.write_text(boot_ipxe)
 
     subs = {
         "PROVISIONING_INTERFACE": interface,
@@ -290,9 +540,33 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
         "TARGET_PASSWORD_HASH":   target.get("password_hash", ""),
     }
 
+    # Render the Proxmox answer file BEFORE boot file extraction so the rendered
+    # content can be embedded directly into the patched initrd (from-iso mode).
+    pve_answer_src = _REPO_ROOT / "targets" / "proxmox" / "answer.toml"
+    pve_answer_rendered = ""
+    if pve_answer_src.exists():
+        pve_answer_rendered = Template(pve_answer_src.read_text()).safe_substitute(subs)
+        pve_answer_dest = run_dir / "proxmox" / "answer.toml"
+        pve_answer_dest.parent.mkdir(parents=True, exist_ok=True)
+        pve_answer_dest.write_text(pve_answer_rendered)
+
+    # For OSes that boot via kernel+initrd, extract those files from the ISO now
+    # so nginx can serve them. The mount point needs sudo because loop devices do.
+    boot_dir = run_dir / "boot"
+    for slug, _key, _label, iso_path in entries:
+        meta = OS_REGISTRY.get(slug, {})
+        if meta.get("boot_method") == "kernel":
+            ans = pve_answer_rendered if slug == "proxmox-ve" else ""
+            _extract_boot_files(iso_path, boot_dir, slug, answer_toml=ans)
+
+    boot_ipxe = _generate_boot_ipxe(seed_ip, entries, default_slug=os_name)
+    boot_dest = run_dir / "ipxe" / "boot.ipxe"
+    boot_dest.parent.mkdir(parents=True, exist_ok=True)
+    boot_dest.write_text(boot_ipxe)
+
     templates = {
         _REPO_ROOT / "seed" / "dnsmasq" / "dnsmasq.conf":   run_dir / "dnsmasq" / "dnsmasq.conf",
-        _REPO_ROOT / "targets" / "proxmox" / "answer.toml": run_dir / "proxmox" / "answer.toml",
+        # answer.toml rendered above (before boot file extraction)
         _REPO_ROOT / "targets" / "ubuntu" / "preseed.cfg":  run_dir / "cloud-init" / "user-data",
         _REPO_ROOT / "targets" / "ubuntu" / "meta-data":    run_dir / "cloud-init" / "meta-data",
         _REPO_ROOT / "targets" / "ubuntu" / "vendor-data":  run_dir / "cloud-init" / "vendor-data",
