@@ -28,7 +28,7 @@ vme preflight   # verify Docker, interface, DHCP, disk space
 vme deploy      # power on the target — everything else is automatic
 ```
 
-See [docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
+See [docs/vme/getting-started.md](../docs/vme/getting-started.md) for the full walkthrough.
 
 ---
 

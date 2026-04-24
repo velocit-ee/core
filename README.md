@@ -40,7 +40,7 @@ vme preflight   # verify the seed machine is ready
 vme deploy      # power on the target — everything else is automatic
 ```
 
-See the [VME getting-started guide](vme/docs/getting-started.md) for full documentation.
+See the [VME getting-started guide](docs/vme/getting-started.md) for full documentation.
 
 ---
 
@@ -108,6 +108,6 @@ The velocitee core engines are open source under the [GNU Affero General Public 
 
 - **Self-hosted use** — free, always
 - **Network service deployment** — modifications must be released under AGPL v3
-- **Proprietary embedding** — [commercial license available](docs/COMMERCIAL_LICENSE.md)
+- **Proprietary embedding** — [commercial license available](docs/commercial-license.md)
 
 The velocit.ee AI configuration generator (SaaS layer) is proprietary and not included in this repository.
