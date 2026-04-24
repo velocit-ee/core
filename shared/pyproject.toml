@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "velocitee-shared"
+version = "0.1.0"
+description = "Shared utilities for velocitee engines"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12.0",
+    "jsonschema>=4.0",
+]
+
+[tool.setuptools]
+packages = ["shared"]
+package-dir = {"shared" = "."}
+include-package-data = true
