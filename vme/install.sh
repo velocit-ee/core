@@ -143,12 +143,12 @@ _section "VME"
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     echo "  Updating existing VME installation at $INSTALL_DIR ..."
+    git -C "$INSTALL_DIR" sparse-checkout set vme shared
     git -C "$INSTALL_DIR" pull --ff-only
 else
     echo "  Downloading VME to $INSTALL_DIR ..."
-    # Clone just the core repo (sparse checkout — only the vme/ directory).
     git clone --filter=blob:none --sparse "$REPO_URL" "$INSTALL_DIR"
-    git -C "$INSTALL_DIR" sparse-checkout set vme
+    git -C "$INSTALL_DIR" sparse-checkout set vme shared
 fi
 
 VME_DIR="$INSTALL_DIR/vme"
@@ -164,11 +164,11 @@ echo "  Installing 'vme' command to $BIN_DIR ..."
 sudo tee "$BIN_DIR/vme" > /dev/null <<EOF
 #!/usr/bin/env bash
 # VME launcher — created by install.sh
-# If docker isn't accessible in the current session (group not yet active),
-# re-exec with sg docker so the user never has to run newgrp manually.
+# INSTALL_DIR is added to PYTHONPATH so 'shared' is importable by all engines.
 cd "$VME_DIR"
+export PYTHONPATH="$INSTALL_DIR\${PYTHONPATH:+:\$PYTHONPATH}"
 if ! docker info &>/dev/null 2>&1 && groups | grep -qv docker && getent group docker &>/dev/null; then
-    exec sg docker -c "$VME_DIR/.venv/bin/python -m cli.vme \$*"
+    exec sg docker -c "PYTHONPATH=$INSTALL_DIR \${PYTHONPATH:+:\$PYTHONPATH} $VME_DIR/.venv/bin/python -m cli.vme \$*"
 fi
 exec "$VME_DIR/.venv/bin/python" -m cli.vme "\$@"
 EOF

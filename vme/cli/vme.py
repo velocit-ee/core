@@ -22,13 +22,10 @@ from . import manifest as mf
 from . import images as img
 from . import setup as wizard
 from .os_registry import OS_REGISTRY, cached_entries
+from shared.cli import make_app, fatal, warn, run_app
 
-app = typer.Typer(
-    name="vme",
-    help="Velocitee Metal Provisioning Engine — PXE-boot and unattended OS install.",
-    add_completion=False,
-)
-images_app = typer.Typer(help="Manage cached OS images.")
+app = make_app("vme", help="Velocitee Metal Provisioning Engine — PXE-boot and unattended OS install.")
+images_app = typer.Typer(help="Manage cached OS images.", context_settings={"help_option_names": ["-h", "--help"]})
 app.add_typer(images_app, name="images")
 
 _CONFIG_DEFAULT  = Path("vme-config.yml")
@@ -41,18 +38,12 @@ _LINE = "═" * 60
 
 def _load_config(config_path: Path) -> dict:
     if not config_path.exists():
-        typer.echo(
-            f"[error] Config file not found: {config_path}\n"
-            "Run 'vme setup' to create one.",
-            err=True,
-        )
-        raise typer.Exit(1)
+        fatal(f"config file not found: {config_path}", hint="run 'vme setup' to create one")
     try:
         with open(config_path) as fh:
             return yaml.safe_load(fh) or {}
     except yaml.YAMLError as exc:
-        typer.echo(f"[error] Config file is not valid YAML: {exc}", err=True)
-        raise typer.Exit(1)
+        fatal(f"config is not valid YAML: {exc}")
 
 
 def _print_preflight(report: pf.PreflightReport) -> None:
@@ -87,12 +78,10 @@ def _assign_ip(interface: str, ip: str) -> None:
         capture_output=True, text=True,
     )
     if result.returncode != 0:
-        typer.echo(
-            f"[error] Could not assign IP to {interface}:\n{result.stderr}\n"
-            f"Run manually: sudo ip addr add {ip}/24 dev {interface}",
-            err=True,
+        fatal(
+            f"could not assign IP to {interface}: {result.stderr.strip()}",
+            hint=f"run manually: sudo ip addr add {ip}/24 dev {interface}",
         )
-        raise typer.Exit(1)
     subprocess.run(["sudo", "ip", "link", "set", interface, "up"], capture_output=True)
 
 
@@ -496,8 +485,7 @@ def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str, answer_toml: 
                             dest_rel = found[0].relative_to(sq_mnt / "usr")
                             nic_modules.append((staged, dest_rel))
                 else:
-                    typer.echo("  [warn] Could not mount pve-installer.squashfs; "
-                               "NIC modules will not be bundled.")
+                    warn("could not mount pve-installer.squashfs; NIC modules will not be bundled")
             finally:
                 subprocess.run(["sudo", "umount", str(sq_mnt)], capture_output=True)
                 sq_mnt.rmdir()
@@ -812,8 +800,7 @@ def preflight(
     if report.passed:
         typer.echo("All checks passed. Ready to deploy.")
     else:
-        typer.echo("[error] One or more checks failed.", err=True)
-        raise typer.Exit(1)
+        fatal("one or more pre-flight checks failed")
 
 
 @app.command()
@@ -830,8 +817,7 @@ def deploy(
         report = pf.run_all(config)
         _print_preflight(report)
         if not report.passed:
-            typer.echo("[error] Pre-flight failed. Aborting.", err=True)
-            raise typer.Exit(1)
+            fatal("pre-flight failed — aborting")
         typer.echo("Pre-flight passed.\n")
 
     interface = cfg.get("provisioning_interface", "")
@@ -845,8 +831,7 @@ def deploy(
         iso_path = img.ensure_image(os_name, cfg)
         typer.echo(f"  Image ready: {iso_path.name}\n")
     except (RuntimeError, ValueError) as exc:
-        typer.echo(f"[error] {exc}", err=True)
-        raise typer.Exit(1)
+        fatal(str(exc))
 
     run_dir = config.parent / "run"
     typer.echo("Preparing seed stack config ...")
@@ -894,7 +879,7 @@ def deploy(
         )
         manifest_path = mf.write(manifest, _MANIFEST_OUTDIR)
     except (ValueError, Exception) as exc:
-        typer.echo(f"[warn] Could not write manifest: {exc}", err=True)
+        warn(f"could not write manifest: {exc}")
         manifest_path = Path("(not written)")
 
     _print_summary(cfg, iso_path, started_at, completed_at, manifest_path, mac)
@@ -911,8 +896,7 @@ def status(
         cwd=config.parent, capture_output=True, text=True,
     )
     if result.returncode != 0:
-        typer.echo("[error] Could not query Docker Compose status.", err=True)
-        raise typer.Exit(1)
+        fatal("could not query Docker Compose status")
     typer.echo(result.stdout)
 
 
@@ -1008,15 +992,13 @@ def images_pull(
     if os_name is None:
         os_name = cfg.get("target", {}).get("os", "")
         if not os_name:
-            typer.echo("[error] No OS specified and none configured.", err=True)
-            raise typer.Exit(1)
+            fatal("no OS specified and none configured in vme-config.yml", hint="set target.os in vme-config.yml")
     typer.echo(f"Pulling {os_name} image ...")
     try:
         dest = img.ensure_image(os_name, cfg)
         typer.echo(f"Cached: {dest}")
     except (RuntimeError, ValueError) as exc:
-        typer.echo(f"[error] {exc}", err=True)
-        raise typer.Exit(1)
+        fatal(str(exc))
 
 
 @images_app.command("clean")
@@ -1034,8 +1016,7 @@ def images_clean(
     try:
         removed = img.clean_cache(cfg, os_name=os_name)
     except ValueError as exc:
-        typer.echo(f"[error] {exc}", err=True)
-        raise typer.Exit(1)
+        fatal(str(exc))
     typer.echo(f"Removed {removed} file(s).")
 
 
@@ -1058,12 +1039,11 @@ def _run_compose(cfg: dict, cwd: Path, *, up: bool) -> None:
         env={**os.environ, **env_vars},
     )
     if result.returncode != 0:
-        typer.echo(f"[error] docker compose failed:\n{result.stderr}", err=True)
-        raise typer.Exit(1)
+        fatal(f"docker compose failed:\n{result.stderr.strip()}")
 
 
 def main() -> None:
-    app()
+    run_app(app)
 
 
 if __name__ == "__main__":

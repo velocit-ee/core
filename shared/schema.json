@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://velocit.ee/schemas/engine/manifest/1.0",
+  "title": "Velocitee Engine Manifest",
+  "description": "Shared manifest written by each engine and passed to the next. Each engine appends a timestamped record under 'engines'. The 'target' and 'access' sections are written once by VME and read by all subsequent engines.",
+  "type": "object",
+  "required": ["schema_version", "target", "access", "engines"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version. Increment when breaking changes are made."
+    },
+    "target": {
+      "type": "object",
+      "description": "Physical machine identity and network config. Written by VME, read by all engines.",
+      "required": ["hostname", "ip", "os"],
+      "additionalProperties": true,
+      "properties": {
+        "hostname":  { "type": "string" },
+        "ip":        { "type": "string", "description": "Static IP of the provisioned machine." },
+        "prefix":    { "type": "integer", "minimum": 0, "maximum": 32 },
+        "gateway":   { "type": "string" },
+        "dns":       { "type": "string" },
+        "disk":      { "type": "string", "description": "Primary disk device path (e.g. /dev/sda)." },
+        "os":        { "type": "string", "description": "OS slug from OS_REGISTRY (e.g. ubuntu-server)." },
+        "mac":       { "type": "string", "description": "MAC address observed during PXE boot." }
+      }
+    },
+    "access": {
+      "type": "object",
+      "description": "How subsequent engines (and operators) connect to the machine.",
+      "required": ["username", "ssh_public_key"],
+      "properties": {
+        "username":        { "type": "string" },
+        "ssh_public_key":  { "type": "string" },
+        "ssh_port":        { "type": "integer", "default": 22 }
+      }
+    },
+    "engines": {
+      "type": "object",
+      "description": "Keyed by engine slug (vme, vne, vce, vae). Each engine appends its record here on completion.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status", "started_at"],
+        "properties": {
+          "status":           { "type": "string", "enum": ["success", "failure", "in_progress"] },
+          "version":          { "type": "string" },
+          "started_at":       { "type": "string", "format": "date-time" },
+          "completed_at":     { "type": "string", "format": "date-time" },
+          "duration_seconds": { "type": "number", "minimum": 0 },
+          "failure_reason":   { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}
