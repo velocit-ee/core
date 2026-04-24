@@ -722,7 +722,7 @@ def _print_summary(
 
     typer.echo()
     typer.echo(_LINE)
-    typer.echo(f"  Provisioning complete.")
+    typer.echo("  Provisioning complete.")
     typer.echo()
     typer.echo(f"  Hostname:   {hostname}")
     typer.echo(f"  OS:         {iso_path.stem}")
@@ -760,7 +760,7 @@ def _prompt_next_engine(manifest_path: Path) -> None:
 
     if choice != "1":
         typer.echo()
-        typer.echo(f"  Manifest saved. Pass it to any engine with:")
+        typer.echo("  Manifest saved. Pass it to any engine with:")
         typer.echo(f"    vne setup --manifest {manifest_path}")
         typer.echo()
         return
@@ -776,7 +776,7 @@ def _prompt_next_engine(manifest_path: Path) -> None:
         typer.echo("  To install VNE on the seed machine:")
         typer.echo("    curl -fsSL https://raw.githubusercontent.com/velocit-ee/core/main/vne/install.sh | bash")
         typer.echo()
-        typer.echo(f"  Then run:")
+        typer.echo("  Then run:")
         typer.echo(f"    vne setup --manifest {manifest_path}")
         typer.echo()
 

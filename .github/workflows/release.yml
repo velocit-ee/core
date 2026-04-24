@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          python3 - <<'EOF'
+          import re, sys
+          with open("CHANGELOG.md") as f:
+              text = f.read()
+          # Extract the first versioned section
+          m = re.search(r'## \[[\d.]+\][^\n]*\n(.*?)(?=\n## \[|\Z)', text, re.DOTALL)
+          body = m.group(1).strip() if m else "See CHANGELOG.md for details."
+          with open(os.environ.get("GITHUB_OUTPUT",""), "a") as out:
+              out.write(f"body<<ENDOFBODY\n{body}\nENDOFBODY\n")
+          EOF
+        env:
+          PYTHONPATH: "."
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "velocitee core ${{ github.ref_name }}"
+          body: ${{ steps.changelog.outputs.body }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

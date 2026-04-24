@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import jsonschema
 import yaml
 
 from .os_registry import OS_REGISTRY
@@ -97,7 +96,7 @@ def check_interface(interface: str) -> CheckResult:
                 name="interface",
                 passed=False,
                 detail=f"Interface '{interface}' not found.",
-                fix=f"Set provisioning_interface in vme-config.yml to an existing interface. Run 'ip link' to list available interfaces.",
+                fix="Set provisioning_interface in vme-config.yml to an existing interface. Run 'ip link' to list available interfaces.",
             )
         if "state UP" not in result.stdout and "state UNKNOWN" not in result.stdout:
             return CheckResult(
@@ -302,7 +301,7 @@ def check_disk_space(cache_dir: Path, required_gb: float = VME_REQUIRED_DISK_GB)
             name="disk_space",
             passed=False,
             detail=f"Only {free_gb:.1f} GB free at '{check_path}'. VME needs at least {required_gb:.0f} GB.",
-            fix=f"Free up disk space or set image_cache_dir to a volume with more space.",
+            fix="Free up disk space or set image_cache_dir to a volume with more space.",
         )
 
     return CheckResult(
