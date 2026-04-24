@@ -5,9 +5,8 @@ Thanks for your interest in contributing.
 ## Before You Submit a PR
 
 All contributors must sign the [Contributor License Agreement](CLA.md)
-before their pull request can be merged. The CLA bot will prompt you
-automatically when you open a pull request — just follow the link it
-posts in the comments.
+before their pull request can be merged. Add a comment to your pull request
+stating: `I have read and agree to the Contributor License Agreement.`
 
 ## What to Contribute
 
@@ -23,3 +22,5 @@ first to discuss before writing code.
 - Keep changes scoped to a single engine module per PR
 - Each engine must remain independently functional
 - If your change affects the handoff manifest schema, document it
+- All Python code must pass `ruff check` — run `ruff check vme/cli/ shared/` before submitting
+- Tests must pass: `cd vme && python -m pytest`

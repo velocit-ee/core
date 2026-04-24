@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
@@ -37,7 +35,7 @@ def _resolve_proxmox_latest() -> tuple[str, str, str]:
         # Fall back to HTTP for all Proxmox URLs in this resolution. The ISO is
         # always SHA-256 verified after download, so integrity is not compromised.
         base = base.replace("https://", "http://", 1)
-        print(f"  Warning: TLS certificate mismatch on download.proxmox.com — using HTTP.")
+        print("  Warning: TLS certificate mismatch on download.proxmox.com — using HTTP.")
         print("  The ISO will be SHA-256 verified after download.")
         resp = requests.get(base, timeout=30)
         resp.raise_for_status()
@@ -238,7 +236,7 @@ def ensure_image(os_name: str, config: dict) -> Path:
     except Exception as exc:
         raise RuntimeError(f"Failed to download {filename}: {exc}") from exc
 
-    print(f"  Verifying checksum ...")
+    print("  Verifying checksum ...")
     try:
         expected = _expected_sha256(sha256_url, filename)
         actual = _sha256_file(dest)
@@ -250,13 +248,13 @@ def ensure_image(os_name: str, config: dict) -> Path:
                 f"  Got:      {actual}\n"
                 "The file has been deleted. Try running 'vme images pull' again."
             )
-        print(f"  Checksum OK.")
+        print("  Checksum OK.")
     except RuntimeError:
         raise
     except requests.RequestException as exc:
         # Checksum server unreachable — warn and keep the file rather than blocking.
         print(f"  Warning: could not fetch checksum ({exc})")
-        print(f"  Skipping verification — run 'vme images pull' again to retry.")
+        print("  Skipping verification — run 'vme images pull' again to retry.")
     return dest
 
 

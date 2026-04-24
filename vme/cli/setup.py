@@ -158,11 +158,11 @@ def _configure_firewall(interface: str) -> None:
         return
 
     print(f"\n  UFW is active. VME needs to allow all inbound traffic on {interface}.")
-    print(f"  (TFTP uses ephemeral ports — a blanket interface rule is required.)")
+    print("  (TFTP uses ephemeral ports — a blanket interface rule is required.)")
 
     open_now = _ask_yes(f"Allow all inbound on {interface}?", default=True)
     if not open_now:
-        print(f"\n  Skipped. Add the rule manually before running 'vme deploy':")
+        print("\n  Skipped. Add the rule manually before running 'vme deploy':")
         print(f"    sudo ufw allow in on {interface}")
         return
 

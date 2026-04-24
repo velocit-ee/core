@@ -1,80 +1,111 @@
 # VME — velocitee metal provisioning engine
 
-**phase 1 · step 0 · in active development**
+[![CI](https://github.com/velocit-ee/core/actions/workflows/ci.yml/badge.svg)](https://github.com/velocit-ee/core/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](../LICENSE)
 
-Part of the [velocit.ee](https://velocit.ee) engine stack — lives in [velocit-ee/core](https://github.com/velocit-ee/core). VME turns bare, unconfigured hardware into a provisioned machine running Proxmox VE or Ubuntu Server — fully unattended, from a single seed machine on the provisioning network.
+**Phase 1 of the [velocit.ee](https://velocit.ee) engine stack. Turns bare, unconfigured hardware into a provisioned machine running Proxmox VE or Ubuntu Server — fully unattended, driven from a single seed machine on the provisioning network.**
 
 ---
 
-## what it does
+## What it does
 
 1. Runs a seed stack (dnsmasq + nginx + iPXE) on a laptop or Raspberry Pi connected to the provisioning network
 2. PXE boots target machines — no USB drives, no manual OS install
 3. Drives a fully unattended install of Proxmox VE or Ubuntu Server
-4. Writes a structured **handoff manifest** on success, describing the provisioned machine (hostname, IP, OS, role) for downstream engines (VNE, VSE)
+4. Writes a structured **handoff manifest** on success for downstream engines (VNE, VSE)
 
 VME is stateless by design. Re-running it against already-provisioned hardware is safe.
 
 ---
 
-## technical approach
+## Quick start
 
-| component | role |
+```bash
+curl -fsSL https://raw.githubusercontent.com/velocit-ee/core/main/vme/install.sh | bash
+cd ~/vme/vme
+vme setup       # guided config wizard — detects interfaces, writes vme-config.yml
+vme preflight   # verify Docker, interface, DHCP, disk space
+vme deploy      # power on the target — everything else is automatic
+```
+
+See [docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
+
+---
+
+## Technical approach
+
+| Component | Role |
 |-----------|------|
-| **dnsmasq** | DHCP + TFTP — hands out IPs and serves the iPXE bootloader to PXE clients |
-| **nginx** | HTTP — serves iPXE scripts and OS install assets |
-| **iPXE** | chainloaded bootloader — selects the correct install chain per target role |
-| **preseed / autoinstall** | drives the unattended OS install (Debian preseed for Proxmox, cloud-init autoinstall for Ubuntu) |
+| **dnsmasq** | DHCP + TFTP — assigns IPs and serves the iPXE bootloader to PXE clients |
+| **nginx** | HTTP — serves iPXE scripts, boot files, and OS install assets |
+| **iPXE** | Chainloaded bootloader — selects the install chain per target OS |
+| **cloud-init autoinstall** | Drives the unattended Ubuntu Server install |
+| **Proxmox installer** | Unattended Proxmox VE install via patched initrd + answer file |
 
 The seed machine needs only a NIC on the provisioning network and enough disk to hold the install assets. No internet access required on the provisioning network after initial asset download.
 
 ---
 
-## handoff manifest
+## Handoff manifest
 
-On successful provisioning, VME writes a YAML manifest:
+On success, VME writes a JSON manifest to `manifests/output/<hostname>-<timestamp>.json`:
 
-```yaml
-hostname: node-01
-ip: 192.168.100.10
-mac: aa:bb:cc:dd:ee:ff
-os: proxmox-ve-8
-role: hypervisor
-provisioned_at: 2026-04-05T14:32:00Z
+```json
+{
+  "schema_version": "1.0",
+  "target": {
+    "hostname": "node-01",
+    "ip": "192.168.100.10",
+    "prefix": 24,
+    "gateway": "192.168.100.1",
+    "os": "proxmox-ve",
+    "mac": "aa:bb:cc:dd:ee:ff"
+  },
+  "access": {
+    "username": "root",
+    "ssh_public_key": "ssh-ed25519 ...",
+    "ssh_port": 22
+  },
+  "engines": {
+    "vme": {
+      "status": "success",
+      "version": "0.1.0",
+      "started_at": "2026-04-24T10:00:00+00:00",
+      "completed_at": "2026-04-24T10:14:22+00:00",
+      "duration_seconds": 862.0
+    }
+  }
+}
 ```
 
-VNE (phase 2) consumes this manifest to configure networking on the provisioned host.
+VNE (phase 2) reads this manifest to continue the pipeline without re-asking for config.
 
 ---
 
-## prerequisites
+## Requirements
 
-**seed machine**
-- any x86_64 or ARM64 machine (laptop, Raspberry Pi 4+, small server)
-- one NIC connected to the provisioning network
-- Ubuntu 22.04+ or Debian 12+ recommended
-- ~10 GB free disk for install assets
+**Seed machine**
+- Ubuntu 22.04+ or Debian 12+
+- Docker Engine
+- One NIC connected to the provisioning switch
+- ~10 GB free disk for OS image cache
 
-**target hardware**
-- x86_64
-- PXE-capable NIC (most hardware from the last 15 years qualifies)
+**Target hardware**
+- x86\_64
+- PXE-capable NIC
 - BIOS/UEFI configured to network-boot on the provisioning NIC
 - ≥ 4 GB RAM, ≥ 64 GB storage (Proxmox VE minimum)
 
 ---
 
-## status
+## Status
 
-Phase 1 — **working, end-to-end tested.** VME successfully PXE boots a target, streams the OS image over the network, runs a fully unattended Ubuntu Server install, and shuts down the target when done. Proxmox VE install path is implemented; Ubuntu Server is confirmed working.
-
-See [docs/getting-started.md](docs/getting-started.md) to get started.
-
-Track progress in [issues](https://github.com/velocit-ee/core/issues).
+**Working end-to-end.** VME successfully PXE boots a target, streams the OS image over the network, runs a fully unattended install of Proxmox VE or Ubuntu Server, and shuts down the target when done. Both OS targets confirmed working against real hardware and Proxmox VMs.
 
 ---
 
-## license
+## License
 
-GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
+GNU Affero General Public License v3.0 — see [LICENSE](../LICENSE).
 
 Part of the velocit.ee open-core engine stack. See [velocit-ee](https://github.com/velocit-ee) for the full architecture.
