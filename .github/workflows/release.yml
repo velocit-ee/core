@@ -26,7 +26,7 @@ jobs:
         id: changelog
         run: |
           python3 - <<'EOF'
-          import re, sys
+          import os, re
           with open("CHANGELOG.md") as f:
               text = f.read()
           # Extract the first versioned section
