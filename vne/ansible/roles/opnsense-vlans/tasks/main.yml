@@ -1,0 +1,15 @@
+---
+# opnsense-vlans: declarative VLAN list, idempotent via ansibleguy.opnsense.
+# The 'reload' handler runs once at the end of the play if any change was made.
+- name: ensure each VLAN exists on the LAN parent
+  ansibleguy.opnsense.vlan:
+    api_url: "{{ opnsense_api_endpoint }}"
+    api_key: "{{ opnsense_api_key }}"
+    api_secret: "{{ opnsense_api_secret }}"
+    ssl_verify: "{{ opnsense_ssl_verify }}"
+    interface: lan
+    vlan: "{{ item.id }}"
+    description: "vne:{{ item.name }}"
+    state: present
+  loop: "{{ vlans }}"
+  notify: reload-vlans

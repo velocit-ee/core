@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+
+# Virtual environments
+.venv/
+.venv-*/
+venv/
+env/
+ENV/
+.python-version
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Per-engine runtime artifacts (engine-local .gitignore files cover these too,
+# but we add belt-and-braces here so a forgotten engine .gitignore doesn't leak)
+**/output/*.json
+**/state/*.state.json
+**/work/
+**/terraform/.terraform/
+**/terraform/terraform.tfstate
+**/terraform/terraform.tfstate.*
+**/terraform/.terraform.lock.hcl
+**/ansible/inventory/hosts.yml
+**/ansible/group_vars/
+**/ansible/collections/
+
+# Local secrets — never commit
+.env
+.env.*
+*.local

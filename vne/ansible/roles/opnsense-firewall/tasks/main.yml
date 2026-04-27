@@ -1,0 +1,37 @@
+---
+# opnsense-firewall: declarative rule set. Default policy applies last so we
+# don't drop the API connection mid-play.
+- name: ensure declared allow rules
+  ansibleguy.opnsense.rule:
+    api_url: "{{ opnsense_api_endpoint }}"
+    api_key: "{{ opnsense_api_key }}"
+    api_secret: "{{ opnsense_api_secret }}"
+    ssl_verify: "{{ opnsense_ssl_verify }}"
+    description: "vne: {{ item.description }}"
+    interface:
+      - "{{ ('vlan' ~ item.src_vlan) if (item.src_vlan != 'any') else 'any' }}"
+    action: "{{ item.action }}"
+    protocol: "{{ item.proto if item.proto != 'any' else 'any' }}"
+    source_net: any
+    destination_net: "{{ ('vlan' ~ item.dst_vlan) if (item.get('dst_vlan', 'any') != 'any') else 'any' }}"
+    state: present
+  loop: "{{ allow_rules | default([]) }}"
+  loop_control:
+    label: "{{ item.description }}"
+  notify: apply-firewall
+
+- name: enforce default block policy
+  ansibleguy.opnsense.rule:
+    api_url: "{{ opnsense_api_endpoint }}"
+    api_key: "{{ opnsense_api_key }}"
+    api_secret: "{{ opnsense_api_secret }}"
+    ssl_verify: "{{ opnsense_ssl_verify }}"
+    description: "vne: default-block (managed)"
+    interface: ["any"]
+    action: block
+    protocol: any
+    source_net: any
+    destination_net: any
+    state: present
+  when: firewall_default_policy == 'block'
+  notify: apply-firewall

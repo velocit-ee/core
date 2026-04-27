@@ -1,0 +1,24 @@
+---
+# opnsense-dns: drive Unbound — set the local domain and upstream forwarders.
+- name: configure Unbound general settings
+  ansibleguy.opnsense.unbound_general:
+    api_url: "{{ opnsense_api_endpoint }}"
+    api_key: "{{ opnsense_api_key }}"
+    api_secret: "{{ opnsense_api_secret }}"
+    ssl_verify: "{{ opnsense_ssl_verify }}"
+    enabled: true
+    forwarding: true
+    domain: "{{ dns_domain }}"
+  notify: reload-unbound
+
+- name: configure Unbound forwarders
+  ansibleguy.opnsense.unbound_forward:
+    api_url: "{{ opnsense_api_endpoint }}"
+    api_key: "{{ opnsense_api_key }}"
+    api_secret: "{{ opnsense_api_secret }}"
+    ssl_verify: "{{ opnsense_ssl_verify }}"
+    domain: "."
+    target: "{{ item }}"
+    state: present
+  loop: "{{ dns_upstream }}"
+  notify: reload-unbound

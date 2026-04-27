@@ -1,0 +1,18 @@
+# VNE runtime artifacts — never commit.
+output/*.json
+state/vne.state.json
+state/*.state.json
+work/
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfstate.*
+ansible/inventory/hosts.yml
+ansible/group_vars/
+ansible/collections/
+ansible/.ansible/
+
+# Keep directory structure.
+!output/.gitkeep
+!state/.gitkeep

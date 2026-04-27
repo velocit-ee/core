@@ -1,0 +1,19 @@
+---
+# opnsense-dhcp: configure DHCP scopes for any VLAN with a dhcp_start/dhcp_end.
+# Skip silently for VLANs that don't have a DHCP range — that's intentional.
+- name: ensure DHCP scope per VLAN
+  ansibleguy.opnsense.dhcp_subnet:
+    api_url: "{{ opnsense_api_endpoint }}"
+    api_key: "{{ opnsense_api_key }}"
+    api_secret: "{{ opnsense_api_secret }}"
+    ssl_verify: "{{ opnsense_ssl_verify }}"
+    subnet: "{{ item.cidr }}"
+    pool_start: "{{ item.dhcp_start }}"
+    pool_end: "{{ item.dhcp_end }}"
+    gateway: "{{ item.gateway }}"
+    dns_servers: ["{{ item.gateway }}"]
+    domain: "{{ dns_domain }}"
+    valid_lifetime: "{{ item.dhcp_lease_time | default(86400) }}"
+    state: present
+  loop: "{{ vlans | selectattr('dhcp_start', 'defined') | selectattr('dhcp_start', 'truthy') | list }}"
+  notify: reload-dhcp

@@ -6,6 +6,37 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+**VNE — Network Configuration Engine** (initial implementation)
+- `velocitee.yml` VNE-block parser (`vne/config.py`) with Pydantic validation, translated into a provisioner-agnostic `VNEIntent` schema
+- `velocitee-native` provisioner — first-class Python backend that drives Proxmox VE and OPNsense REST APIs directly, with idempotency probes at every step and a versioned, resumable state file (`vne/state/vne.state.json`)
+- OPNsense first-boot `config.xml` generator (`vne/config_xml.py`) — sets root password (SHA-512 crypt via passlib), assigns WAN/LAN, enables the REST API
+- `opentofu+ansible` parallel backend — `OpenTofuRenderer` (pinned `bpg/proxmox` 0.66.2) creates infra and writes `infra_manifest.json`; `AnsibleRenderer` reads it and runs idempotent roles via the pinned `ansibleguy.opnsense` 1.30.1 collection. Hard phase gate: Phase 2 never runs after Phase 1 fails
+- 11 stub renderers registered for completeness: `ansible-only`, `pulumi`, `salt`, `chef`, `puppet`, `cloudformation`, `bicep`, `nix`, `cloud-init`, `helm`, `packer`
+- Verification gate (`vne/scripts/verify.py`) — checks API reachability, DNS resolution via OPNsense, internet egress (TCP not ICMP), and VLAN presence. Output manifest is not written unless every check passes
+- Entry point `vne/deploy.py` + thin `scripts/deploy.sh` wrapper. Pre-flight reports all missing env vars in one error
+- JSON Schema files for VNE input (VME manifest contract) and VNE output (consumed by VSE)
+
+**shared — Engine runtime library** (extended)
+- `shared/schema.py` — Pydantic models for the provisioner-agnostic internal schema (VLAN, DHCP, DNS, firewall, VM specs, `VNEIntent`)
+- `shared/renderer.py` — `Renderer` ABC; phase-tagged (`infra` / `config` / `both`)
+- `shared/pipeline.py` — phase-ordered orchestrator with hard gating between phases
+- `shared/renderer_registry.py` — provisioner-name → renderer-class registry; lazy-loaded
+- `shared/renderers/` — concrete renderer implementations and shared API clients (Proxmox, OPNsense)
+
+### Engines
+| Engine | Status |
+|--------|--------|
+| VME    | Active |
+| VNE    | Active (initial) |
+| VSE    | Planned — phase 3 |
+| VLE    | Planned — phase 4 |
+
+---
+
 ## [0.1.0] — 2026-04-24
 
 Initial public release of the velocitee engine stack.
