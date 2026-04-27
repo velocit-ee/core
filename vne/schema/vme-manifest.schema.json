@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://velocit.ee/schemas/vne/vme-input/1.0",
+  "title": "VME Handoff Manifest (as consumed by VNE)",
+  "description": "Subset of the shared engine manifest that VNE strictly requires from VME. This file documents the contract VNE relies on; if VME's manifest format changes, VNE updates this file. Mirrors shared/schema.json with VNE-specific required fields elevated.",
+  "type": "object",
+  "required": ["schema_version", "target", "access", "engines"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "target": {
+      "type": "object",
+      "description": "The Proxmox host VME provisioned. VNE creates the OPNsense VM on this host.",
+      "required": ["hostname", "ip", "os"],
+      "additionalProperties": true,
+      "properties": {
+        "hostname": { "type": "string", "minLength": 1 },
+        "ip":       { "type": "string", "format": "ipv4" },
+        "prefix":   { "type": "integer", "minimum": 0, "maximum": 32 },
+        "gateway":  { "type": "string", "format": "ipv4" },
+        "dns":      { "type": "string" },
+        "disk":     { "type": "string" },
+        "os":       {
+          "type": "string",
+          "description": "VNE only supports Proxmox VE as the host OS. Halt with a clear error otherwise.",
+          "enum": ["proxmox-ve"]
+        },
+        "mac":      { "type": "string" }
+      }
+    },
+    "access": {
+      "type": "object",
+      "required": ["username", "ssh_public_key"],
+      "properties": {
+        "username":       { "type": "string", "minLength": 1 },
+        "ssh_public_key": { "type": "string", "minLength": 1 },
+        "ssh_port":       { "type": "integer", "default": 22 }
+      }
+    },
+    "engines": {
+      "type": "object",
+      "required": ["vme"],
+      "properties": {
+        "vme": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["success"],
+              "description": "VNE refuses to run if VME did not complete successfully."
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://velocit.ee/schemas/vne/output/1.0",
+  "title": "VNE Output Manifest",
+  "description": "Written by VNE on success — read by VSE. Extends the shared engine manifest with a 'vne' record under engines. Top-level structure is the same shared manifest format from shared/schema.json; this schema validates the additional fields VNE's engines.vne entry must contain.",
+  "type": "object",
+  "required": ["schema_version", "target", "access", "engines"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "target":         { "type": "object" },
+    "access":         { "type": "object" },
+    "engines": {
+      "type": "object",
+      "required": ["vme", "vne"],
+      "properties": {
+        "vne": {
+          "type": "object",
+          "required": [
+            "status",
+            "started_at",
+            "completed_at",
+            "provisioner",
+            "opnsense",
+            "vlans",
+            "dns",
+            "verification"
+          ],
+          "properties": {
+            "status":           { "type": "string", "enum": ["success", "failure"] },
+            "version":          { "type": "string" },
+            "started_at":       { "type": "string", "format": "date-time" },
+            "completed_at":     { "type": "string", "format": "date-time" },
+            "duration_seconds": { "type": "number", "minimum": 0 },
+            "provisioner":      { "type": "string", "minLength": 1 },
+            "opnsense": {
+              "type": "object",
+              "required": ["vm_ip", "vmid", "api_endpoint", "version"],
+              "properties": {
+                "vm_ip":        { "type": "string", "format": "ipv4" },
+                "vmid":         { "type": "integer", "minimum": 100 },
+                "api_endpoint": { "type": "string", "format": "uri" },
+                "version":      { "type": "string" }
+              }
+            },
+            "vlans": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "name", "cidr", "gateway"],
+                "properties": {
+                  "id":         { "type": "integer", "minimum": 1, "maximum": 4094 },
+                  "name":       { "type": "string", "minLength": 1 },
+                  "cidr":       { "type": "string" },
+                  "gateway":    { "type": "string", "format": "ipv4" },
+                  "dhcp_range": {
+                    "type": "array",
+                    "items": { "type": "string", "format": "ipv4" },
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                }
+              }
+            },
+            "dns": {
+              "type": "object",
+              "required": ["server", "domain", "upstream"],
+              "properties": {
+                "server":   { "type": "string", "format": "ipv4" },
+                "domain":   { "type": "string" },
+                "upstream": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "verification": {
+              "type": "object",
+              "required": ["passed", "checks"],
+              "properties": {
+                "passed": { "type": "boolean", "const": true,
+                            "description": "VNE only writes its manifest when verification fully passed." },
+                "checks": {
+                  "type": "object",
+                  "required": ["api_reachable", "dns_resolving", "internet_egress", "vlans_up"],
+                  "properties": {
+                    "api_reachable":   { "type": "boolean" },
+                    "dns_resolving":   { "type": "boolean" },
+                    "internet_egress": { "type": "boolean" },
+                    "vlans_up":        { "type": "boolean" }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "proxmox_host": {
+              "type": "object",
+              "required": ["ip", "hostname"],
+              "properties": {
+                "ip":       { "type": "string", "format": "ipv4" },
+                "hostname": { "type": "string" }
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

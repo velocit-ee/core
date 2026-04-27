@@ -1,0 +1,8 @@
+---
+- name: reload-unbound
+  ansibleguy.opnsense.reload:
+    api_url: "{{ opnsense_api_endpoint }}"
+    api_key: "{{ opnsense_api_key }}"
+    api_secret: "{{ opnsense_api_secret }}"
+    ssl_verify: "{{ opnsense_ssl_verify }}"
+    target: unbound

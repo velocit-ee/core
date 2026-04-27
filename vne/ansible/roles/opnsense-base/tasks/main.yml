@@ -1,0 +1,22 @@
+---
+# opnsense-base: smoke-test the API and capture the appliance version.
+# Idempotent by construction — pure GETs, no state changes.
+- name: confirm OPNsense API responds
+  ansible.builtin.uri:
+    url: "{{ opnsense_api_endpoint }}/api/core/system/status"
+    user: "{{ opnsense_api_key }}"
+    password: "{{ opnsense_api_secret }}"
+    force_basic_auth: true
+    validate_certs: "{{ opnsense_ssl_verify }}"
+    status_code: 200
+    return_content: true
+  register: opnsense_status
+  changed_when: false
+  retries: 30
+  delay: 10
+  until: opnsense_status.status == 200
+
+- name: record OPNsense reachability
+  ansible.builtin.debug:
+    msg: "OPNsense API reachable at {{ opnsense_api_endpoint }}"
+  changed_when: false

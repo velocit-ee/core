@@ -1,0 +1,18 @@
+---
+# Top-level playbook driven by the Ansible renderer (shared/renderers/ansible.py).
+# Inventory is generated at runtime from infra_manifest.json — do not edit
+# inventory/hosts.yml by hand; the renderer overwrites it.
+#
+# Idempotency: every role below is structurally idempotent. Re-running this
+# playbook against an already-configured OPNsense is safe.
+- hosts: opnsense
+  gather_facts: false
+  connection: local
+  collections:
+    - ansibleguy.opnsense
+  roles:
+    - opnsense-base
+    - opnsense-vlans
+    - opnsense-dhcp
+    - opnsense-dns
+    - opnsense-firewall
