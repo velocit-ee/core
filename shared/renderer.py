@@ -25,9 +25,9 @@ inside `vne/deploy.py`. The descriptor is the source of truth for:
   - what the (eventual) SaaS UI renders as a config form,
   - which fields the OSS docs document for that backend.
 
-Inspired by ARCTIC's `shard.yml` plugin descriptors, but inlined into Python
-since velocitee renderers are first-class Python classes (no separate
-plugin loader).
+The descriptor lives on the class itself rather than in a sibling YAML or a
+central registry — adding a backend means writing one Python class, no edits
+to deploy.py or any global lookup table.
 """
 
 from __future__ import annotations
