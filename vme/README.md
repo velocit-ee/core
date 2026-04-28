@@ -1,7 +1,7 @@
 # VME — velocitee metal provisioning engine
 
 [![CI](https://github.com/velocit-ee/core/actions/workflows/ci.yml/badge.svg)](https://github.com/velocit-ee/core/actions/workflows/ci.yml)
-[![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](../LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
 
 **Phase 1 of the [velocit.ee](https://velocit.ee) engine stack. Turns bare, unconfigured hardware into a provisioned machine running Proxmox VE or Ubuntu Server — fully unattended, driven from a single seed machine on the provisioning network.**
 
@@ -106,6 +106,6 @@ VNE (phase 2) reads this manifest to continue the pipeline without re-asking for
 
 ## License
 
-GNU Affero General Public License v3.0 — see [LICENSE](../LICENSE).
+Apache License, Version 2.0 — see [LICENSE](../LICENSE).
 
 Part of the velocit.ee open-core engine stack. See [velocit-ee](https://github.com/velocit-ee) for the full architecture.

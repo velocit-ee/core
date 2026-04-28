@@ -6,6 +6,7 @@ build-backend = "setuptools.backends.legacy:build"
 name = "vme"
 version = "0.1.0"
 description = "Velocitee Metal Provisioning Engine"
+license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 dependencies = [
     "velocitee-shared",
