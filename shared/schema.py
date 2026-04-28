@@ -64,8 +64,6 @@ class Volume(_StrictModel):
     backends written against `shared/schema.py` (especially future provider
     plugins like an OpenNebula or OpenStack renderer) can model storage as
     a first-class object instead of bolting it onto VMSpec.
-
-    Inspired by ARCTIC's `ArcticVolume` — same shape, mapped to Pydantic.
     """
     name: str = Field(min_length=1)
     size_gb: int = Field(ge=1, le=65_536)
