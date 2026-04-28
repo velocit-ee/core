@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/velocit-ee/core/actions/workflows/ci.yml/badge.svg)](https://github.com/velocit-ee/core/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/velocit-ee/core?label=release)](https://github.com/velocit-ee/core/releases)
-[![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 
 **Open-source engine stack powering [velocit.ee](https://velocit.ee). Takes hardware from bare metal to a fully documented, running infrastructure stack — engine by engine.**
@@ -104,10 +104,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and code stan
 
 ## License
 
-The velocitee core engines are open source under the [GNU Affero General Public License v3.0](LICENSE).
+The velocitee core engines are open source under the [Apache License, Version 2.0](LICENSE).
 
-- **Self-hosted use** — free, always
-- **Network service deployment** — modifications must be released under AGPL v3
-- **Proprietary embedding** — [commercial license available](https://docs.velocit.ee/commercial-license/)
+- **Self-hosted use** — free, always.
+- **Modifying, forking, redistributing, embedding** — go ahead.
+- **Building a commercial product on top** — go ahead. Just keep the
+  attribution and don't claim our patent rights stop you from competing
+  with us.
 
-The velocit.ee AI configuration generator (SaaS layer) is proprietary and not included in this repository.
+The velocit.ee SaaS layer (AI config generator, hosted registry, drift
+alerts) is a separate proprietary service built on top of these engines.
+That code lives elsewhere. The engines stay open.

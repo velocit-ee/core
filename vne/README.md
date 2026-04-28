@@ -1,6 +1,6 @@
 # VNE — velocitee network configuration engine
 
-[![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](../LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
 
 **Phase 2 of the [velocit.ee](https://velocit.ee) engine stack. Takes a
 provisioned Proxmox host (the output of VME) and turns it into a fully
@@ -196,4 +196,4 @@ package — VNE imports them.
 
 ## License
 
-AGPL v3 — see [LICENSE](LICENSE).
+Apache 2.0 — see [LICENSE](LICENSE).

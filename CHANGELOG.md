@@ -8,6 +8,21 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed — relicense
+
+- **Engines relicensed from AGPL v3 → Apache License, Version 2.0.** All five
+  LICENSE files (root, vme, vne, vse, vle) replaced with the canonical Apache
+  2.0 text. Apache 2.0 is permissive — fork, modify, redistribute, embed in
+  proprietary products. The CLA we already had keeps the door open for
+  velocitee to offer alternative licensing arrangements in the future.
+- CLA updated to v2.0 — license-agnostic; references Apache 2.0 as the
+  current OSS release; explicit patent grant.
+- READMEs, pyproject `license` fields, marketing site copy, docs site, org
+  profile README all updated for consistency.
+- The "commercial license" pricing tier feature is dropped — Apache 2.0
+  already permits commercial use; the enterprise tier now sells on
+  private deployments, named support, training, and SLA.
+
 ### Added
 
 **VNE — Network Configuration Engine** (initial implementation)
