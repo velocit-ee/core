@@ -24,7 +24,7 @@ import yaml
 from pathlib import Path
 from typing import Any
 
-from ..renderer import Renderer
+from ..renderer import ConfigKey, Renderer
 from ..renderer_registry import register
 from ..schema import ProvisioningResult
 
@@ -35,19 +35,34 @@ ANSIBLE_REQUIRED_MIN = "2.15"
 OPNSENSE_COLLECTION  = "ansibleguy.opnsense"
 OPNSENSE_COLLECTION_VERSION = "1.30.1"
 
-_REQUIRED_ENV = (
-    "OPNSENSE_API_KEY",
-    "OPNSENSE_API_SECRET",
-)
-
-
 class AnsibleRenderer(Renderer):
     name = "ansible"
     phase = "config"
 
+    config_keys = [
+        ConfigKey(
+            env="OPNSENSE_API_KEY",
+            type="string",
+            required=True,
+            description="OPNsense API key (user-scoped, generated under System → Access → Users)",
+        ),
+        ConfigKey(
+            env="OPNSENSE_API_SECRET",
+            type="password",
+            required=True,
+            description="Secret half of the OPNsense API key pair",
+        ),
+        ConfigKey(
+            env="OPNSENSE_INSECURE",
+            type="bool",
+            required=False,
+            description="Set to '1' for self-signed OPNsense certs",
+        ),
+    ]
+
     def validate(self) -> list[str]:
         errors: list[str] = []
-        for k in _REQUIRED_ENV:
+        for k in self.required_env():
             if not os.environ.get(k):
                 errors.append(f"missing env: {k}")
         if not shutil.which("ansible-playbook"):

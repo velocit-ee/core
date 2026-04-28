@@ -14,17 +14,48 @@ Some renderers (velocitee-native) cover both phases in one render() call. Others
 pipeline runs all 'infra' renderers in order, then all 'config' renderers in
 order. A 'config' renderer never runs if any 'infra' renderer in the same
 pipeline failed — that gate is enforced by the pipeline, not the renderer.
+
+## Plugin descriptor (`config_keys`)
+
+Each renderer self-declares its config keys via `config_keys`. This replaces
+the old approach of duplicating each backend's required-env-var inventory
+inside `vne/deploy.py`. The descriptor is the source of truth for:
+
+  - which env vars deploy.py's pre-flight check looks for,
+  - what the (eventual) SaaS UI renders as a config form,
+  - which fields the OSS docs document for that backend.
+
+Inspired by ARCTIC's `shard.yml` plugin descriptors, but inlined into Python
+since velocitee renderers are first-class Python classes (no separate
+plugin loader).
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from .schema import ProvisioningResult, VNEIntent
 
 Phase = Literal["infra", "config", "both"]
+ConfigType = Literal["string", "password", "url", "bool", "int"]
+
+
+@dataclass(frozen=True)
+class ConfigKey:
+    """One config key the renderer needs. Descriptor for env-var inventory.
+
+    `env` is the environment variable name the renderer reads at runtime.
+    `type` and `required` drive UI rendering and pre-flight validation.
+    `description` is shown to the user in error messages and docs.
+    """
+    env: str
+    description: str
+    type: ConfigType = "string"
+    required: bool = True
+    default: str | None = None
 
 
 class Renderer(ABC):
@@ -32,6 +63,11 @@ class Renderer(ABC):
 
     name: str = ""  # e.g. "velocitee-native", "opentofu", "ansible"
     phase: Phase = "both"
+
+    # Subclasses override with their backend-specific keys. Empty list = no
+    # config required (e.g. stub renderers). Treated as immutable per class —
+    # never mutate at the class level, replace the whole list in subclasses.
+    config_keys: list[ConfigKey] = []
 
     def __init__(self, *, intent: VNEIntent, work_dir: Path, state_dir: Path):
         if not self.name:
@@ -83,3 +119,25 @@ class Renderer(ABC):
                 error="validation failed:\n  " + "\n  ".join(errors),
             )
         return self.execute(prior_outputs=prior_outputs or {})
+
+    # -----------------------------------------------------------------
+    # Class-level helpers (no instance needed)
+    # -----------------------------------------------------------------
+
+    @classmethod
+    def required_env(cls) -> list[str]:
+        """Names of env vars the user must set for this renderer.
+
+        deploy.py's pre-flight uses this to build a per-backend missing-vars
+        list before any renderer is instantiated.
+        """
+        return [k.env for k in cls.config_keys if k.required]
+
+    @classmethod
+    def optional_env(cls) -> list[str]:
+        return [k.env for k in cls.config_keys if not k.required]
+
+    @classmethod
+    def missing_env(cls, env: dict[str, str]) -> list[str]:
+        """Return names of required env vars not present in `env`."""
+        return [name for name in cls.required_env() if not env.get(name)]
