@@ -49,23 +49,24 @@ _REPO_ROOT = Path(__file__).parent
 _VME_MANIFEST_SCHEMA = _REPO_ROOT / "schema" / "vme-manifest.schema.json"
 _VNE_MANIFEST_SCHEMA = _REPO_ROOT / "schema" / "vne-manifest.schema.json"
 
-# Single source of truth for what env vars *every* deploy needs.
-# Backend-specific extras come from the renderer's own validate().
-_BASE_REQUIRED_ENV: tuple[str, ...] = ()  # currently none — the renderer enforces its own.
+def _required_env_for(provisioner: str) -> list[str]:
+    """Look up every required env var across the renderers a provisioner uses.
 
-# Backend-specific env var inventory used purely for pre-flight reporting.
-# Renderer.validate() is still authoritative.
-_BACKEND_ENV: dict[str, tuple[str, ...]] = {
-    "velocitee-native": (
-        "PROXMOX_VE_ENDPOINT", "PROXMOX_VE_API_TOKEN", "OPNSENSE_ROOT_PASSWORD",
-    ),
-    "opentofu": ("PROXMOX_VE_ENDPOINT", "PROXMOX_VE_API_TOKEN"),
-    "ansible": ("OPNSENSE_API_KEY", "OPNSENSE_API_SECRET"),
-    "opentofu+ansible": (
-        "PROXMOX_VE_ENDPOINT", "PROXMOX_VE_API_TOKEN",
-        "OPNSENSE_API_KEY", "OPNSENSE_API_SECRET",
-    ),
-}
+    Each renderer ships its own `config_keys` descriptor. Composite provisioners
+    (e.g. opentofu+ansible) span multiple renderers; we union their required
+    keys so pre-flight surfaces every miss in one error.
+    """
+    renderer_registry.ensure_loaded()
+    if not renderer_registry.is_registered(provisioner):
+        return []
+    keys: list[str] = []
+    seen: set[str] = set()
+    for cls in renderer_registry.lookup(provisioner):
+        for env in cls.required_env():
+            if env not in seen:
+                keys.append(env)
+                seen.add(env)
+    return keys
 
 
 # ---------------------------------------------------------------------------
@@ -176,11 +177,11 @@ def deploy(
     typer.echo("VNE — Velocitee Network Configuration Engine")
     typer.echo()
 
-    # Step 1 — pre-flight env vars
+    # Step 1 — pre-flight env vars (driven by each renderer's config_keys)
     typer.echo("[1/7] Pre-flight: environment variables ...")
     file_cfg = _load_velocitee(config)
     provisioner = file_cfg.velocitee.provisioner
-    expected = list(_BASE_REQUIRED_ENV) + list(_BACKEND_ENV.get(provisioner, ()))
+    expected = _required_env_for(provisioner)
     missing = [k for k in expected if not os.environ.get(k)]
     if missing:
         fatal(

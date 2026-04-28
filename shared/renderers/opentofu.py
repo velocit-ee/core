@@ -23,7 +23,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from ..renderer import Renderer
+from ..renderer import ConfigKey, Renderer
 from ..renderer_registry import register
 from ..schema import ProvisioningResult
 
@@ -33,19 +33,40 @@ log = logging.getLogger("velocitee.renderer.opentofu")
 TERRAFORM_REQUIRED = ">= 1.6.0, < 2.0.0"
 PROXMOX_PROVIDER_VERSION = "0.66.2"   # bpg/proxmox
 
-_REQUIRED_ENV = (
-    "PROXMOX_VE_ENDPOINT",
-    "PROXMOX_VE_API_TOKEN",
-)
-
-
 class OpenTofuRenderer(Renderer):
     name = "opentofu"
     phase = "infra"
 
+    config_keys = [
+        ConfigKey(
+            env="PROXMOX_VE_ENDPOINT",
+            type="url",
+            required=True,
+            description="Proxmox VE API endpoint, e.g. https://proxmox.lab:8006",
+        ),
+        ConfigKey(
+            env="PROXMOX_VE_API_TOKEN",
+            type="password",
+            required=True,
+            description="Proxmox VE API token (user@realm!tokenid=secret)",
+        ),
+        ConfigKey(
+            env="PROXMOX_VE_INSECURE",
+            type="bool",
+            required=False,
+            description="Set to '1' for self-signed Proxmox certs",
+        ),
+        ConfigKey(
+            env="PROXMOX_VE_NODE",
+            type="string",
+            required=False,
+            description="Pin Proxmox node when the cluster has more than one",
+        ),
+    ]
+
     def validate(self) -> list[str]:
         errors: list[str] = []
-        for key in _REQUIRED_ENV:
+        for key in self.required_env():
             if not os.environ.get(key):
                 errors.append(f"missing env: {key}")
         if not shutil.which("tofu"):

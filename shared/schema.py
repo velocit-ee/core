@@ -57,6 +57,36 @@ class VMSpec(_StrictModel):
         return self
 
 
+class Volume(_StrictModel):
+    """Persistent storage volume.
+
+    VME doesn't manage volumes today; VSE will. This schema is here now so
+    backends written against `shared/schema.py` (especially future provider
+    plugins like an OpenNebula or OpenStack renderer) can model storage as
+    a first-class object instead of bolting it onto VMSpec.
+
+    Inspired by ARCTIC's `ArcticVolume` — same shape, mapped to Pydantic.
+    """
+    name: str = Field(min_length=1)
+    size_gb: int = Field(ge=1, le=65_536)
+    storage_pool: str = Field(min_length=1)
+    bootable: bool = False
+    image_id: str | None = Field(
+        default=None,
+        description="Backend-specific image identifier when this volume should "
+                    "be cloned from a base image (e.g. an OS template). When set, "
+                    "`bootable` should also be true.",
+    )
+    fs: Literal["raw", "qcow2", "ext4", "xfs", "btrfs"] | None = None
+
+    @model_validator(mode="after")
+    def _bootable_image(self) -> Volume:
+        if self.image_id and not self.bootable:
+            raise ValueError("Volume.image_id is set but bootable=False — "
+                             "imaged volumes must be bootable to be useful")
+        return self
+
+
 # ---------------------------------------------------------------------------
 # Networking
 # ---------------------------------------------------------------------------

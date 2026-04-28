@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..renderer import Renderer
+from ..renderer import ConfigKey, Renderer
 from ..renderer_registry import register
 from ..schema import ProvisioningResult
 from ._opnsense_client import OPNsenseAPIError, OPNsenseClient
@@ -41,30 +41,57 @@ def _config_xml():
 
 
 # ---------------------------------------------------------------------------
-# Required env vars — listed once, used everywhere
-# ---------------------------------------------------------------------------
-
-_REQUIRED_ENV = (
-    "PROXMOX_VE_ENDPOINT",
-    "PROXMOX_VE_API_TOKEN",
-    # OPNsense root password used at first boot via config.xml.
-    # Once the API key is generated and persisted to state, this isn't strictly
-    # needed on resume — but we keep it required so it stays out of YAML files.
-    "OPNSENSE_ROOT_PASSWORD",
-)
-
-
-def _missing_env() -> list[str]:
-    return [k for k in _REQUIRED_ENV if not os.environ.get(k)]
-
-
-# ---------------------------------------------------------------------------
 # Renderer
 # ---------------------------------------------------------------------------
 
 class VelociteeNativeRenderer(Renderer):
     name = "velocitee-native"
     phase = "both"
+
+    # Each key is documented once, here. deploy.py's pre-flight reads this list
+    # to build the missing-env error; future SaaS UIs render config forms from
+    # the same descriptors.
+    config_keys = [
+        ConfigKey(
+            env="PROXMOX_VE_ENDPOINT",
+            type="url",
+            required=True,
+            description="Proxmox VE API endpoint, e.g. https://proxmox.lab:8006",
+        ),
+        ConfigKey(
+            env="PROXMOX_VE_API_TOKEN",
+            type="password",
+            required=True,
+            description="Proxmox VE API token in the form user@realm!tokenid=secret",
+        ),
+        # OPNsense root password used at first boot via config.xml. Once the
+        # API key is generated and persisted to state, this isn't strictly
+        # needed on resume — but we keep it required so it stays out of YAML.
+        ConfigKey(
+            env="OPNSENSE_ROOT_PASSWORD",
+            type="password",
+            required=True,
+            description="OPNsense root password to bake into the first-boot config.xml",
+        ),
+        ConfigKey(
+            env="PROXMOX_VE_INSECURE",
+            type="bool",
+            required=False,
+            description="Set to '1' to skip TLS verification for Proxmox (self-signed cluster certs)",
+        ),
+        ConfigKey(
+            env="OPNSENSE_INSECURE",
+            type="bool",
+            required=False,
+            description="Set to '1' to skip TLS verification for OPNsense",
+        ),
+        ConfigKey(
+            env="PROXMOX_VE_NODE",
+            type="string",
+            required=False,
+            description="Pin a specific Proxmox node when the cluster has more than one (defaults to first node returned by API)",
+        ),
+    ]
 
     def __init__(self, *, intent, work_dir: Path, state_dir: Path):
         super().__init__(intent=intent, work_dir=work_dir, state_dir=state_dir)
@@ -80,7 +107,7 @@ class VelociteeNativeRenderer(Renderer):
 
     def validate(self) -> list[str]:
         errors: list[str] = []
-        missing = _missing_env()
+        missing = self.missing_env(dict(os.environ))
         if missing:
             errors.append(
                 "missing required environment variables: " + ", ".join(missing)
