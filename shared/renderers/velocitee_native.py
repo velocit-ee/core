@@ -482,8 +482,9 @@ def _upload_iso_via_storage(
     existing = proxmox.find_iso_volume(node, storage, basename)
     if existing:
         return existing
-    # POST multipart/form-data to /nodes/{node}/storage/{storage}/upload
-    import requests
+    # POST multipart/form-data to /nodes/{node}/storage/{storage}/upload.
+    # Reuse the proxmox client's pre-auth'd session — it already carries the
+    # PVEAPIToken header and the right verify_ssl setting.
     url = proxmox.base + f"/nodes/{node}/storage/{storage}/upload"
     with open(path, "rb") as fh:
         files = {"filename": (basename, fh, "application/octet-stream")}

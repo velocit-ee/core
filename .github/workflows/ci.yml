@@ -27,9 +27,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r vme/requirements.txt -r vme/requirements-dev.txt
+          # VNE deps — pinned via vne/pyproject.toml (no requirements.txt yet)
+          pip install pydantic jsonschema pyyaml typer requests passlib
 
       - name: Lint (ruff)
-        run: ruff check vme/cli/ shared/ --select E,F,W --ignore E501,E402
+        # Cover VME, the shared library, and VNE — the new code we added in
+        # the engine + renderer abstractions.
+        run: ruff check vme/cli/ shared/ vne/ --select E,F,W --ignore E501,E402
 
       - name: Test VME
         run: |
