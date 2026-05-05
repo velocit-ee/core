@@ -23,6 +23,7 @@ from . import images as img
 from . import setup as wizard
 from .os_registry import OS_REGISTRY, cached_entries
 from shared.cli import make_app, fatal, warn, run_app
+from vme import backends as vme_backends
 
 app = make_app("vme", help="Velocitee Metal Provisioning Engine — PXE-boot and unattended OS install.")
 images_app = typer.Typer(help="Manage cached OS images.", context_settings={"help_option_names": ["-h", "--help"]})
@@ -781,6 +782,64 @@ def _prompt_next_engine(manifest_path: Path) -> None:
         typer.echo()
 
 
+def _run_external_backend(slug: str, cfg: dict, config_path: Path, *, verbose: bool) -> None:
+    """Drive a non-builtin backend (e.g. MAAS) to completion.
+
+    External backends are responsible for the provisioning side — VME just
+    asks them to deploy the target described in the config and writes the
+    same `vme-manifest.json` shape on success. From VNE's perspective, a
+    manifest produced by MAAS is indistinguishable from one produced by
+    the builtin seed stack.
+    """
+    try:
+        backend_cls = vme_backends.lookup(slug)
+    except KeyError as exc:
+        fatal(str(exc), hint=f"available backends: {', '.join(vme_backends.available())}")
+
+    typer.echo(f"VME backend: {slug}")
+    typer.echo(f"  ({backend_cls.description})\n")
+
+    backend = backend_cls()
+    result = backend.deploy(cfg, verbose=verbose)
+    if not result.success:
+        fatal(f"{slug} backend failed: {result.error}")
+
+    # Build a manifest in the shared shape so downstream engines don't care
+    # which backend ran.
+    cfg_for_manifest = dict(cfg)
+    target = dict(cfg_for_manifest.get("target") or {})
+    if result.target_ip:
+        target["ip"] = result.target_ip
+    if result.target_hostname:
+        target["hostname"] = result.target_hostname
+    if result.target_os:
+        target["os"] = result.target_os
+    cfg_for_manifest["target"] = target
+
+    iso_proxy = Path(result.iso_name or f"{slug}-deploy")
+    try:
+        manifest = mf.build_vme(
+            cfg=cfg_for_manifest,
+            iso_path=iso_proxy,
+            mac=result.target_mac or None,
+            started_at=result.started_at,
+            completed_at=result.completed_at,
+        )
+    except (ValueError, Exception) as exc:
+        fatal(f"could not build manifest from {slug} backend: {exc}")
+
+    # Annotate with backend-specific extras under engines.vme so consumers
+    # know which path produced this manifest.
+    manifest.setdefault("engines", {}).setdefault("vme", {}).update({
+        "backend": slug,
+        "backend_extra": result.extra,
+    })
+
+    manifest_path = mf.write(manifest, _MANIFEST_OUTDIR)
+    typer.echo(f"\nWrote manifest: {manifest_path}")
+    _prompt_next_engine(manifest_path)
+
+
 @app.command()
 def setup(
     config: Path = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to write vme-config.yml"),
@@ -809,8 +868,18 @@ def deploy(
     skip_preflight: bool = typer.Option(False, "--skip-preflight", help="Skip pre-flight checks."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full compose logs instead of filtered events."),
 ) -> None:
-    """Provision a machine over PXE — runs unattended from power-on to shutdown."""
+    """Provision a machine over PXE — runs unattended from power-on to shutdown.
+
+    The default backend (`builtin`) runs the docker-compose seed stack on this
+    machine. Set `backend: maas` in vme-config.yml to hand provisioning off
+    to an existing Canonical MAAS deployment instead.
+    """
     cfg = _load_config(config)
+
+    backend_slug = (cfg.get("backend") or "builtin").lower()
+    if backend_slug != "builtin":
+        _run_external_backend(backend_slug, cfg, config, verbose=verbose)
+        return
 
     if not skip_preflight:
         typer.echo("Running pre-flight checks ...")
@@ -877,6 +946,7 @@ def deploy(
             started_at=started_at,
             completed_at=completed_at,
         )
+        manifest.setdefault("engines", {}).setdefault("vme", {})["backend"] = "builtin"
         manifest_path = mf.write(manifest, _MANIFEST_OUTDIR)
     except (ValueError, Exception) as exc:
         warn(f"could not write manifest: {exc}")

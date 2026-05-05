@@ -42,11 +42,22 @@ from typing import Any
 
 import requests
 
+from .._retry import TransientAPIError, transient_retry
+
 log = logging.getLogger("velocitee.opnsense")
 
 
 class OPNsenseAPIError(RuntimeError):
     pass
+
+
+class OPNsenseTransientError(OPNsenseAPIError, TransientAPIError):
+    """5xx or connection-level error that's worth retrying.
+
+    Inherits from both the engine error type (so existing handlers catching
+    OPNsenseAPIError still work) and the shared TransientAPIError marker
+    (so the retry decorator picks it up).
+    """
 
 
 class OPNsenseClient:
@@ -83,38 +94,32 @@ class OPNsenseClient:
     # Low level
     # -----------------------------------------------------------------
 
+    @transient_retry()
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         url = self.base + path
         kwargs.setdefault("timeout", self._timeout)
-        attempts = 0
-        last_exc: Exception | None = None
-        while attempts < 3:
-            attempts += 1
-            try:
-                resp = self._session.request(method, url, **kwargs)
-            except requests.RequestException as exc:
-                last_exc = exc
-                time.sleep(min(2 ** attempts, 8))
-                continue
-            if 500 <= resp.status_code < 600:
-                last_exc = OPNsenseAPIError(
-                    f"{method} {path} → HTTP {resp.status_code}"
-                )
-                time.sleep(min(2 ** attempts, 8))
-                continue
-            if resp.status_code >= 400:
-                raise OPNsenseAPIError(
-                    f"{method} {path} → HTTP {resp.status_code}: "
-                    f"{resp.text.strip()[:500]}"
-                )
-            try:
-                return resp.json()
-            except ValueError as exc:
-                raise OPNsenseAPIError(
-                    f"{method} {path} returned non-JSON"
-                ) from exc
+        try:
+            resp = self._session.request(method, url, **kwargs)
+        except requests.RequestException as exc:
+            # Connection/DNS/SSL errors are retryable.
+            raise OPNsenseTransientError(f"{method} {path} network error: {exc}") from exc
 
-        raise OPNsenseAPIError(f"{method} {path} failed after retries: {last_exc}")
+        if 500 <= resp.status_code < 600:
+            raise OPNsenseTransientError(
+                f"{method} {path} → HTTP {resp.status_code}"
+            )
+        if resp.status_code >= 400:
+            # 4xx is a user/programmer error — never retry.
+            raise OPNsenseAPIError(
+                f"{method} {path} → HTTP {resp.status_code}: "
+                f"{resp.text.strip()[:500]}"
+            )
+        try:
+            return resp.json()
+        except ValueError as exc:
+            raise OPNsenseAPIError(
+                f"{method} {path} returned non-JSON"
+            ) from exc
 
     def _get(self, path: str, **kwargs: Any) -> Any:
         return self._request("GET", path, **kwargs)

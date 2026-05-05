@@ -135,6 +135,11 @@ def _host_block(host: Host) -> str:
         parts.append("|---:|---|---|---|:-:|---|")
         for svc in sorted(host.services, key=lambda s: s.port):
             parts.append(_service_row(svc))
+    if host.os_guesses:
+        parts.append("")
+        parts.append("**OS guesses (nmap):** " + ", ".join(
+            f"{g.name} ({g.accuracy}%)" for g in host.os_guesses
+        ))
     return "\n".join(parts)
 
 
@@ -142,10 +147,12 @@ def _service_row(svc: Service) -> str:
     title = svc.http_title or (svc.banner[:60] if svc.banner else "")
     title = title.replace("|", "\\|")
     tls = "✓" if svc.tls else " "
+    product = svc.product or svc.nmap_product or svc.http_server or "—"
+    version = svc.version or svc.nmap_version or "—"
     return (
         f"| {svc.port} | {svc.name or '—'} | "
-        f"{svc.product or svc.http_server or '—'} | "
-        f"{svc.version or '—'} | {tls} | {title or '—'} |"
+        f"{product} | "
+        f"{version} | {tls} | {title or '—'} |"
     )
 
 

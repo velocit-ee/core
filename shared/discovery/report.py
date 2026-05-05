@@ -36,6 +36,22 @@ class Service(_StrictModel):
     tls_san: list[str] = Field(default_factory=list)
     http_title: str = Field(default="", max_length=256)
     http_server: str = Field(default="", max_length=256)
+    # Populated by the optional nmap enrichment pass. Kept as separate fields
+    # rather than overwriting the stdlib-derived ones so consumers can tell
+    # which probe path produced which fact (and so a missing nmap binary
+    # never silently degrades the older fields).
+    nmap_product: str = Field(default="")
+    nmap_version: str = Field(default="")
+    nmap_extrainfo: str = Field(default="")
+    nmap_cpe: list[str] = Field(default_factory=list)
+
+
+class OSGuess(_StrictModel):
+    """One OS family guess from nmap's TCP/IP stack fingerprinting."""
+    name: str
+    accuracy: int = Field(ge=0, le=100)
+    family: str = Field(default="", description="osfamily attribute from nmap (Linux, Windows, ...).")
+    vendor: str = Field(default="")
 
 
 class Host(_StrictModel):
@@ -50,6 +66,10 @@ class Host(_StrictModel):
         description="How we found this host: 'arp', 'mdns', 'ssdp', 'icmp', 'tcp-connect'.",
     )
     services: list[Service] = Field(default_factory=list)
+    os_guesses: list[OSGuess] = Field(
+        default_factory=list,
+        description="Populated when nmap enrichment was used and produced OS fingerprints.",
+    )
     role_hints: list[str] = Field(
         default_factory=list,
         description="Heuristic role tags: 'gateway', 'dns', 'dhcp', 'router', 'switch', 'opnsense', ...",
@@ -133,6 +153,10 @@ class ScanScope(_StrictModel):
     active: bool = True
     fingerprint: bool = True
     snmp_community: str = Field(default="", description="Empty = no SNMP.")
+    use_nmap: str = Field(
+        default="auto",
+        description="'auto' (use if available), 'on' (require), 'off' (skip).",
+    )
     notes: str = ""
 
 

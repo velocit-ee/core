@@ -8,6 +8,65 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — nmap enrichment, MAAS backend, retry/structured-logging foundation
+
+**`shared/discovery/nmap_probe.py`** — optional nmap enrichment for the
+discovery toolkit
+- Subprocess invocation of `nmap -oX -`; XML parsed with stdlib `xml.etree`
+- Service-version detection (`-sV`) + best-effort OS family fingerprinting
+  (`-O`, root only); CPE strings on each enriched service
+- `--use-nmap auto|on|off` flag on `velocitee-discover scan` and
+  `vne join` (default `auto` — used if `nmap` is on PATH)
+- Strict license boundary documented: subprocess only, never imports a
+  Python wrapper (`python-nmap`/`python-libmaas` are GPL v2 and would
+  conflict with Apache 2.0)
+- `Service.nmap_product/nmap_version/nmap_extrainfo/nmap_cpe` and
+  `Host.os_guesses` populated when enrichment runs; `nmap_enrichment`
+  capability flag added to the report
+
+**VME — MAAS backend** *(new)*
+- `vme/backends/` package: `Backend` ABC + slug registry mirroring the
+  renderer pattern; `BuiltinBackend` placeholder + `MAASBackend` REST
+  client implementation
+- `vme deploy` dispatches on the new `backend:` field in
+  `vme-config.yml` (default `builtin` — zero behaviour change for
+  existing users); `backend: maas` hands off to a Canonical MAAS
+  region+rack controller via `MAAS_URL` + `MAAS_API_KEY`
+- OAuth 1.0 PLAINTEXT signer hand-rolled (no `python-libmaas` import to
+  avoid LGPL friction); MAAS REST client uses `requests` directly
+- `_maas_distro_series` translates VME's `target.os` slugs into MAAS
+  distro codenames (jammy/noble); falls back to passthrough for custom
+  MAAS images
+- 14 unit tests for registry + OAuth + URL canonicalisation +
+  distro-series mapping
+
+**`shared._retry` + tenacity-backed retry policy**
+- New `TransientAPIError` marker class + `transient_retry()` decorator
+  (3 attempts, exponential backoff capped at 8s, retries only on the
+  marker class — never on 4xx)
+- OPNsense + Proxmox + MAAS clients all share the policy: 5xx and
+  network errors retry transparently, user errors fail fast
+- Replaces hand-rolled retry loop in `_opnsense_client.py`
+
+**`shared.logging` + structlog stdlib bridge**
+- `configure()` helper wires structlog into stdlib `logging` so existing
+  `logging.getLogger(...)` calls keep working unchanged but emit
+  structured output
+- TTY autodetect — friendly key=value on a console, JSON for log
+  shippers; `VELOCITEE_LOG_FORMAT` and `VELOCITEE_LOG_LEVEL` env-var
+  overrides
+- VNE deploy/join + `velocitee-discover` CLIs now call `configure()`
+  instead of `logging.basicConfig`
+
+**Repository tooling**
+- `.pre-commit-config.yaml` — trailing-whitespace, end-of-file-fixer,
+  check-yaml/json/toml, ruff + ruff-format, plus a local hook that
+  validates every `*.schema.json` against Draft 7
+- CONTRIBUTING.md gains a *Pre-commit hooks* section
+
+**`velocitee-shared` 0.4.0** — adds `tenacity>=8.2` and `structlog>=24.0`
+to the dependency floor; `vme` and `vne` bump their shared dep accordingly.
+
 ### Added — discovery toolkit & VNE Path B (join existing network)
 
 **`shared/discovery/` — common scanning, documentation & diagnostics tool**

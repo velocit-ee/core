@@ -32,6 +32,7 @@ import jsonschema
 import typer
 
 # We are vne.deploy — we depend on the shared library and the local vne package.
+from shared import logging as vlogging
 from shared import manifest as mf
 from shared import renderer_registry
 from shared.cli import fatal, run_app, warn
@@ -173,6 +174,7 @@ def deploy(
             iface="",
             passive_seconds=6,
             snmp_community="",
+            use_nmap="auto",
             adapter_slug="",
             work_dir=work_dir,
             output_dir=output,
@@ -182,10 +184,7 @@ def deploy(
         )
         return
 
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
-    )
+    vlogging.configure(level=logging.DEBUG if verbose else logging.INFO)
 
     typer.echo("VNE — Velocitee Network Configuration Engine")
     typer.echo()
@@ -411,6 +410,10 @@ def join(
         "", "--snmp-community",
         help="SNMP v2c community for sysDescr probe. Empty = no SNMP.",
     ),
+    use_nmap: str = typer.Option(
+        "auto", "--use-nmap",
+        help="Use nmap if available: 'auto' (default), 'on' (require), 'off' (skip).",
+    ),
     adapter: str = typer.Option(
         "", "--adapter",
         help="Force a router adapter slug (unmanaged, opnsense, ...). Default: auto-detect.",
@@ -432,10 +435,7 @@ def join(
 ) -> None:
     """Join an existing network. Runs discovery, picks a router adapter, writes a
     join-mode VNE manifest. Read-only — never mutates the router."""
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
-    )
+    vlogging.configure(level=logging.DEBUG if verbose else logging.INFO)
     typer.echo("VNE — Velocitee Network Configuration Engine (join mode)")
     typer.echo()
     vne_join.run_join(
@@ -443,6 +443,7 @@ def join(
         iface=iface,
         passive_seconds=passive_seconds,
         snmp_community=snmp_community,
+        use_nmap=use_nmap,
         adapter_slug=adapter,
         work_dir=work_dir,
         output_dir=output,
