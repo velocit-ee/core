@@ -19,12 +19,12 @@ bare metal ──► VME ──► VNE ──► VSE ──► VLE ──► doc
             provision  network  services  lifecycle
 ```
 
-| Engine | Phase | Status | Description |
-|--------|-------|--------|-------------|
-| **VME** | 1 | Active | Bare-metal provisioning — PXE boot + unattended OS install (Proxmox VE, Ubuntu Server) |
-| **VNE** | 2 | Active (initial) | Network configuration — OPNsense VM, VLANs, DHCP, DNS, firewall. Provisioner-agnostic via the renderer registry. |
-| VSE | 3 | Planned | Services — containerised stack deployment, idempotent configuration |
-| VLE | 4 | Planned | Lifecycle — monitoring, drift detection, auto-docs, single-command repair |
+| Engine  | Phase | Status  | Description |
+|---------|:-----:|---------|-------------|
+| **VME** | 1     | Stable  | Bare-metal provisioning — PXE boot + unattended OS install (Proxmox VE, Ubuntu Server). Two backends: `builtin` seed stack or `maas` (optional). |
+| **VNE** | 2     | Stable  | Network configuration — OPNsense VM, VLANs, DHCP, DNS, firewall. Provisioner-agnostic via the renderer registry. Discovery + Path B (`vne join`) for existing networks. |
+| VSE     | 3     | Planned | Services — containerised stack deployment, idempotent configuration. |
+| VLE     | 4     | Planned | Lifecycle — monitoring, drift detection, auto-docs, single-command repair. |
 
 Each engine is independently useful. You don't need the full pipeline to get value from VME.
 
@@ -60,16 +60,14 @@ See the [VME getting-started guide](https://docs.velocit.ee/vme/getting-started/
 
 ## Architecture
 
-VME runs a containerised seed stack on the provisioning machine:
+VME ships two backends. Pick one in `vme-config.yml` (`backend: builtin` is the default):
 
-| Component | Role |
-|-----------|------|
-| **dnsmasq** | DHCP + TFTP — assigns IPs and serves the iPXE bootloader |
-| **nginx** | HTTP — serves boot scripts and OS install assets |
-| **iPXE** | Chainloaded bootloader — selects the correct install chain per target OS |
-| **cloud-init / autoinstall** | Drives the unattended OS install |
+| Backend   | What it does                                                                  | When to choose it |
+|-----------|-------------------------------------------------------------------------------|-------------------|
+| `builtin` | Runs a containerised seed stack on the provisioning machine — dnsmasq (DHCP + TFTP), nginx (HTTP), iPXE (chainloaded bootloader), cloud-init / autoinstall. | Default. No external services needed; runs on a laptop or a Pi. |
+| `maas`    | Hands provisioning off to an existing Canonical [MAAS](https://maas.io) region+rack controller via its REST API.                            | Operators who already run MAAS for inventory / IPMI / commissioning. |
 
-On success, VME writes a **handoff manifest** — a JSON document describing the provisioned machine (hostname, IP, OS, SSH key, timing). Downstream engines read this manifest to continue the pipeline without re-asking for config.
+On success, VME writes a **handoff manifest** — a JSON document describing the provisioned machine (hostname, IP, OS, SSH key, timing, the backend that ran it). Downstream engines read this manifest to continue the pipeline without re-asking for config.
 
 ---
 

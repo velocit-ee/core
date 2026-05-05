@@ -27,8 +27,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r vme/requirements.txt -r vme/requirements-dev.txt
-          # VNE deps — pinned via vne/pyproject.toml (no requirements.txt yet)
-          pip install pydantic jsonschema pyyaml typer requests passlib
+          # Shared + VNE deps. Listed inline because shared/ is imported by
+          # both VME and VNE tests; one dep block keeps CI simple.
+          pip install pydantic jsonschema pyyaml typer requests passlib \
+                      tenacity structlog
 
       - name: Lint (ruff)
         # Cover VME, the shared library, and VNE — the new code we added in
@@ -39,3 +41,7 @@ jobs:
         run: |
           cd vme
           python -m pytest --tb=short -q
+
+      - name: Test shared
+        run: |
+          PYTHONPATH=. python -m pytest shared/tests/ --tb=short -q

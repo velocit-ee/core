@@ -3,7 +3,10 @@
 [![CI](https://github.com/velocit-ee/core/actions/workflows/ci.yml/badge.svg)](https://github.com/velocit-ee/core/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
 
-**Phase 1 of the [velocit.ee](https://velocit.ee) engine stack. Turns bare, unconfigured hardware into a provisioned machine running Proxmox VE or Ubuntu Server — fully unattended, driven from a single seed machine on the provisioning network.**
+**Phase 1 · Stable** — turns bare, unconfigured hardware into a provisioned
+machine running Proxmox VE or Ubuntu Server. Two backends ship: the default
+`builtin` seed stack runs on a laptop or a Pi; the optional `maas` backend
+hands provisioning off to an existing Canonical MAAS deployment.
 
 ---
 

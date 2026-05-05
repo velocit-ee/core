@@ -1,11 +1,13 @@
 # VNE — velocitee network configuration engine
 
+[![CI](https://github.com/velocit-ee/core/actions/workflows/ci.yml/badge.svg)](https://github.com/velocit-ee/core/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
 
-**Phase 2 of the [velocit.ee](https://velocit.ee) engine stack. Takes a
-provisioned Proxmox host (the output of VME) and turns it into a fully
-configured network — OPNsense VM, VLANs, DHCP, DNS, and a firewall baseline —
-without the operator ever touching HCL, playbooks, or `config.xml`.**
+**Phase 2 · Stable** — takes a provisioned Proxmox host (the output of VME) and
+turns it into a fully configured network — OPNsense VM, VLANs, DHCP, DNS, and
+a firewall baseline — without the operator ever touching HCL, playbooks, or
+`config.xml`. Or skip provisioning entirely and `vne join` an existing
+network.
 
 ---
 
@@ -248,6 +250,17 @@ vne/
 Renderers themselves live in `shared/renderers/`, and the discovery toolkit
 plus router adapters live in `shared/discovery/` — both ship with the
 velocitee-shared package, VNE imports them.
+
+---
+
+## Status
+
+**Stable end-to-end.** Both deploy paths (`vne deploy` provisioning a fresh
+OPNsense, `vne join` registering an existing network) are implemented,
+tested, and verified against real Proxmox + OPNsense targets. The
+`velocitee-native` and `opentofu+ansible` provisioner backends both ship.
+The discovery toolkit is shared with VSE/VLE and gates VNE's join-mode
+capability flags.
 
 ---
 
