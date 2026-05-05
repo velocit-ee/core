@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://velocit.ee/schemas/vne/output/1.0",
   "title": "VNE Output Manifest",
-  "description": "Written by VNE on success — read by VSE. Extends the shared engine manifest with a 'vne' record under engines. Top-level structure is the same shared manifest format from shared/schema.json; this schema validates the additional fields VNE's engines.vne entry must contain.",
+  "description": "Written by VNE on success — read by VSE. Extends the shared engine manifest with a 'vne' record under engines. Two modes are valid: 'deploy' (VNE provisioned an OPNsense VM and configured the network) and 'join' (VNE joined an existing network and recorded its observed state).",
   "type": "object",
   "required": ["schema_version", "target", "access", "engines"],
   "properties": {
@@ -15,23 +15,17 @@
       "properties": {
         "vne": {
           "type": "object",
-          "required": [
-            "status",
-            "started_at",
-            "completed_at",
-            "provisioner",
-            "opnsense",
-            "vlans",
-            "dns",
-            "verification"
-          ],
+          "required": ["status", "mode", "started_at", "completed_at"],
           "properties": {
             "status":           { "type": "string", "enum": ["success", "failure"] },
+            "mode":             { "type": "string", "enum": ["deploy", "join"], "default": "deploy" },
             "version":          { "type": "string" },
             "started_at":       { "type": "string", "format": "date-time" },
             "completed_at":     { "type": "string", "format": "date-time" },
             "duration_seconds": { "type": "number", "minimum": 0 },
+
             "provisioner":      { "type": "string", "minLength": 1 },
+
             "opnsense": {
               "type": "object",
               "required": ["vm_ip", "vmid", "api_endpoint", "version"],
@@ -42,6 +36,7 @@
                 "version":      { "type": "string" }
               }
             },
+
             "vlans": {
               "type": "array",
               "items": {
@@ -61,6 +56,7 @@
                 }
               }
             },
+
             "dns": {
               "type": "object",
               "required": ["server", "domain", "upstream"],
@@ -70,6 +66,7 @@
                 "upstream": { "type": "array", "items": { "type": "string" } }
               }
             },
+
             "verification": {
               "type": "object",
               "required": ["passed", "checks"],
@@ -78,26 +75,100 @@
                             "description": "VNE only writes its manifest when verification fully passed." },
                 "checks": {
                   "type": "object",
-                  "required": ["api_reachable", "dns_resolving", "internet_egress", "vlans_up"],
-                  "properties": {
-                    "api_reachable":   { "type": "boolean" },
-                    "dns_resolving":   { "type": "boolean" },
-                    "internet_egress": { "type": "boolean" },
-                    "vlans_up":        { "type": "boolean" }
-                  },
                   "additionalProperties": true
                 }
               }
             },
+
             "proxmox_host": {
               "type": "object",
-              "required": ["ip", "hostname"],
               "properties": {
-                "ip":       { "type": "string", "format": "ipv4" },
+                "ip":       { "type": "string" },
                 "hostname": { "type": "string" }
+              }
+            },
+
+            "joined_network": {
+              "type": "object",
+              "description": "Populated when mode=join. Records the observed network state and which router adapter handled the join.",
+              "required": ["adapter", "gateway"],
+              "properties": {
+                "mode":      { "type": "string", "const": "join" },
+                "adapter":   { "type": "string", "minLength": 1,
+                               "description": "Router adapter slug used (unmanaged, opnsense, ...)." },
+                "gateway": {
+                  "type": "object",
+                  "required": ["ip"],
+                  "properties": {
+                    "ip":           { "type": "string" },
+                    "vendor":       { "type": "string" },
+                    "product":      { "type": "string" },
+                    "version":      { "type": "string" },
+                    "confidence":   { "type": "number", "minimum": 0, "maximum": 1 },
+                    "managed":      { "type": "boolean" },
+                    "api_endpoint": { "type": "string" }
+                  }
+                },
+                "dns": {
+                  "type": "object",
+                  "properties": {
+                    "resolvers":      { "type": "array", "items": { "type": "string" } },
+                    "search_domains": { "type": "array", "items": { "type": "string" } }
+                  }
+                },
+                "observed_cidrs": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "observed_vlans": {
+                  "type": "array",
+                  "items": { "type": "object" }
+                },
+                "observed_services": {
+                  "type": "array",
+                  "items": { "type": "object" }
+                },
+                "discovery_report": {
+                  "type": "string",
+                  "description": "Path or filename of the JSON discovery report this join was based on."
+                },
+                "live": {
+                  "type": "object",
+                  "description": "Adapter-specific live state pulled from the router API (when credentials were provided)."
+                }
+              }
+            },
+
+            "capabilities": {
+              "type": "array",
+              "description": "Flat list of capability flags VSE/VLE consume to gate features.",
+              "items": {
+                "type": "object",
+                "required": ["name", "available"],
+                "properties": {
+                  "name":      { "type": "string" },
+                  "available": { "type": "boolean" },
+                  "reason":    { "type": "string" }
+                }
               }
             }
           },
+
+          "allOf": [
+            {
+              "if": { "properties": { "mode": { "const": "deploy" } }, "required": ["mode"] },
+              "then": {
+                "required": ["provisioner", "opnsense", "vlans", "dns", "verification"]
+              }
+            },
+            {
+              "if": { "properties": { "mode": { "const": "join" } }, "required": ["mode"] },
+              "then": {
+                "required": ["joined_network", "capabilities"]
+              }
+            }
+          ],
+
           "additionalProperties": true
         }
       },

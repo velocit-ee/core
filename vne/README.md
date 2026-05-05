@@ -161,9 +161,64 @@ the user usually wants to inspect). Resolve the failure, re-run, succeed.
 
 ---
 
-## Path B (join existing network)
+## Path B — join an existing network
 
-Not implemented. `--join-existing` exits with code 1 and a clear message.
+Use `vne join` when you already have a network and want VNE to *describe and
+register it* rather than provision a new OPNsense. The router can be
+anything: OPNsense, pfSense, MikroTik, UniFi, EdgeOS, OpenWrt, Cisco IOS,
+FortiGate, or a brand-new one nobody has written an adapter for. The
+`unmanaged` adapter always works as a catch-all.
+
+```bash
+# Auto-detect everything from the local subnet
+vne join
+
+# Be explicit
+vne join \
+  --cidr 10.0.0.0/24 --cidr 10.10.0.0/24 \
+  --iface eth0 \
+  --snmp-community public \
+  --adapter opnsense \
+  --output vne/output \
+  --yes
+
+# Join with a VME-provisioned host as the seed manifest
+vne join --manifest /path/to/vme-manifest.json
+```
+
+What `vne join` does:
+
+1. Runs network discovery via the shared `velocitee-discover` tool —
+   passive (ARP/mDNS/SSDP) plus active (sweep + connect-scan + light
+   fingerprinting). No nmap/scapy/raw-socket dependency.
+2. Identifies the gateway vendor (heuristics: HTTP titles, TLS SANs, SSH
+   banners, optional SNMP sysDescr).
+3. Picks a router adapter — auto-detected, override with `--adapter`.
+4. Writes `discovery-report.json` + `discovery-report.md` (full audit).
+5. Writes a `mode: "join"` VNE output manifest under `--output`. VSE/VLE
+   read the `joined_network` and `capabilities` blocks to gate their
+   features (e.g. firewall management vs documentation-only).
+
+Joining is read-only: VNE never modifies the router during a join. To
+later mutate state on a joined network, run `vne deploy` against the
+same `velocitee.yml` once you've filled in your intent.
+
+### Router adapters
+
+| Adapter      | Status        | What it does on top of unmanaged                               |
+|--------------|---------------|----------------------------------------------------------------|
+| `unmanaged`  | **Default**   | Always works. Documents observed state. Required cap: none.    |
+| `opnsense`   | Implemented   | Pulls live VLAN/DHCP/firewall state via the OPNsense API when `OPNSENSE_API_KEY/SECRET` are set. Falls back to observed-only otherwise. |
+| `pfsense`    | Stub          | Slug reserved.                                                 |
+| `mikrotik`   | Stub          | Slug reserved.                                                 |
+| `unifi`      | Stub          | Slug reserved.                                                 |
+| `edgeos`     | Stub          | Slug reserved.                                                 |
+| `openwrt`    | Stub          | Slug reserved.                                                 |
+| `cisco`      | Stub          | Slug reserved.                                                 |
+| `fortigate`  | Stub          | Slug reserved.                                                 |
+
+Adding a new adapter = subclass `shared.discovery.adapters.RouterAdapter`,
+register the slug. Same pattern as renderers.
 
 ---
 
@@ -173,10 +228,11 @@ Not implemented. `--join-existing` exits with code 1 and a clear message.
 vne/
   config.py                       # Pydantic models for velocitee.yml VNE block
   config_xml.py                   # OPNsense first-boot config.xml generator
-  deploy.py                       # Entry point — `vne deploy …`
+  deploy.py                       # Entry point — `vne deploy` and `vne join`
+  join.py                         # Path B orchestration (uses shared.discovery)
   schema/
     vme-manifest.schema.json      # What VNE expects from VME
-    vne-manifest.schema.json      # What VNE writes for VSE
+    vne-manifest.schema.json      # What VNE writes for VSE (deploy + join modes)
   state/                          # vne.state.json (gitignored)
   output/                         # Final handoff manifest (gitignored)
   terraform/                      # Generated at runtime by OpenTofu renderer
@@ -189,8 +245,9 @@ vne/
     verify.py                     # The verification gate
 ```
 
-Renderers themselves live in `shared/renderers/` and ship with the velocitee-shared
-package — VNE imports them.
+Renderers themselves live in `shared/renderers/`, and the discovery toolkit
+plus router adapters live in `shared/discovery/` — both ship with the
+velocitee-shared package, VNE imports them.
 
 ---
 

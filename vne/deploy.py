@@ -39,6 +39,7 @@ from shared.pipeline import Pipeline
 from shared.schema import VNEIntent
 
 from vne import config as vne_config
+from vne import join as vne_join
 from vne.scripts import verify as vne_verify
 
 log = logging.getLogger("vne.deploy")
@@ -160,14 +161,26 @@ def deploy(
     ),
     path_b: bool = typer.Option(
         False, "--join-existing",
-        help="Path B: join an existing network instead of provisioning OPNsense. (Not implemented.)",
+        help="Deprecated: forwards to `vne join` (joins an existing network).",
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Provision and configure a network on top of a VME-provisioned host."""
     if path_b:
-        typer.echo("Path B (join existing network) not yet implemented.", err=True)
-        raise typer.Exit(1)
+        warn("--join-existing is deprecated; use `vne join` directly")
+        vne_join.run_join(
+            cidrs=[],
+            iface="",
+            passive_seconds=6,
+            snmp_community="",
+            adapter_slug="",
+            work_dir=work_dir,
+            output_dir=output,
+            vme_manifest=vme_manifest if vme_manifest.exists() else None,
+            yes=False,
+            vne_version=VNE_VERSION,
+        )
+        return
 
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
@@ -337,6 +350,7 @@ def _build_vne_record(
 ) -> dict[str, Any]:
     """Assemble the engines.vne entry for the output manifest."""
     return {
+        "mode": "deploy",
         "provisioner": provisioner,
         "opnsense": {
             "vm_ip": outputs.get("opnsense_ip", ""),
@@ -377,6 +391,65 @@ def _build_vne_record(
             "hostname": vme_data["target"]["hostname"],
         },
     }
+
+
+@app.command()
+def join(
+    cidr: list[str] = typer.Option(
+        None, "--cidr",
+        help="CIDR(s) to scan. Repeatable. Defaults to the local subnet.",
+    ),
+    iface: str = typer.Option(
+        "", "--iface",
+        help="Interface to bind multicast listeners to (passive discovery).",
+    ),
+    passive_seconds: int = typer.Option(
+        6, "--passive-seconds",
+        help="How long to listen for mDNS/SSDP. 0 disables passive listening.",
+    ),
+    snmp_community: str = typer.Option(
+        "", "--snmp-community",
+        help="SNMP v2c community for sysDescr probe. Empty = no SNMP.",
+    ),
+    adapter: str = typer.Option(
+        "", "--adapter",
+        help="Force a router adapter slug (unmanaged, opnsense, ...). Default: auto-detect.",
+    ),
+    vme_manifest: Path = typer.Option(
+        None, "--manifest", "-m",
+        help="VME manifest to extend (optional). If omitted, a minimal manifest is synthesized.",
+    ),
+    work_dir: Path = typer.Option(
+        Path("vne/work"), "--work-dir",
+        help="Where the join writes adapter scratch state.",
+    ),
+    output: Path = typer.Option(
+        Path("vne/output"), "--output",
+        help="Where the discovery report and VNE manifest are written.",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Join an existing network. Runs discovery, picks a router adapter, writes a
+    join-mode VNE manifest. Read-only — never mutates the router."""
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+    )
+    typer.echo("VNE — Velocitee Network Configuration Engine (join mode)")
+    typer.echo()
+    vne_join.run_join(
+        cidrs=list(cidr) if cidr else [],
+        iface=iface,
+        passive_seconds=passive_seconds,
+        snmp_community=snmp_community,
+        adapter_slug=adapter,
+        work_dir=work_dir,
+        output_dir=output,
+        vme_manifest=vme_manifest if vme_manifest else None,
+        yes=yes,
+        vne_version=VNE_VERSION,
+    )
 
 
 def main() -> None:
