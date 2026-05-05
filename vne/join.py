@@ -60,6 +60,7 @@ def run_join(
     iface: str,
     passive_seconds: int,
     snmp_community: str,
+    use_nmap: str,
     adapter_slug: str,
     work_dir: Path,
     output_dir: Path,
@@ -77,6 +78,7 @@ def run_join(
         iface=iface,
         passive_seconds=passive_seconds,
         snmp_community=snmp_community,
+        use_nmap=use_nmap,
     )
 
     typer.echo(

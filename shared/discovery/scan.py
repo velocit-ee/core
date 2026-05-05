@@ -22,7 +22,7 @@ import logging
 import time
 from typing import Iterable
 
-from . import active, fingerprint, network, passive, routers
+from . import active, fingerprint, network, nmap_probe, passive, routers
 from .report import (
     Capability,
     DiscoveryReport,
@@ -44,6 +44,7 @@ def run_discovery(
     do_active: bool = True,
     do_fingerprint: bool = True,
     snmp_community: str = "",
+    use_nmap: str = "auto",
     timeout_s: float = 0.6,
     workers: int = 256,
 ) -> DiscoveryReport:
@@ -118,6 +119,25 @@ def run_discovery(
             snmp_community=snmp_community,
         )
 
+    # Optional nmap enrichment — additive layer on top of the stdlib pass.
+    nmap_used = False
+    if use_nmap not in {"auto", "on", "off"}:
+        warnings.append(f"unknown use_nmap value '{use_nmap}'; treating as 'auto'")
+        use_nmap = "auto"
+    if use_nmap != "off" and hosts:
+        if use_nmap == "on" and not nmap_probe.is_available():
+            warnings.append(
+                "use_nmap='on' but nmap binary not found on PATH — install nmap or set use_nmap='off'"
+            )
+        elif nmap_probe.is_available():
+            ports_for_nmap = tuple(ports) if ports else active.DEFAULT_PORTS
+            nmap_used, msg = nmap_probe.enrich_hosts(
+                hosts, ports=ports_for_nmap,
+            )
+            log.info("discovery: nmap %s — %s", "ran" if nmap_used else "skipped", msg)
+            if msg and not nmap_used:
+                warnings.append(f"nmap enrichment: {msg}")
+
     # 5. Router identification — find the gateway in the host list
     gateway_host = next((h for h in hosts if h.ip == net_info.default_gateway), None)
     router = routers.identify(gateway_host, hosts)
@@ -132,7 +152,9 @@ def run_discovery(
     vlans = _vlans_from_interfaces(net_info)
 
     # 7. Capabilities
-    capabilities = _synthesize_capabilities(router, snmp_community=snmp_community)
+    capabilities = _synthesize_capabilities(
+        router, snmp_community=snmp_community, nmap_used=nmap_used,
+    )
 
     duration = time.monotonic() - started
     return DiscoveryReport(
@@ -144,6 +166,7 @@ def run_discovery(
             active=do_active,
             fingerprint=do_fingerprint,
             snmp_community="<set>" if snmp_community else "",
+            use_nmap=use_nmap,
         ),
         network=net_info,
         router=router,
@@ -173,7 +196,9 @@ def _vlans_from_interfaces(net_info) -> list[VLANObservation]:  # type: ignore[n
     return out
 
 
-def _synthesize_capabilities(router: RouterInfo, *, snmp_community: str) -> list[Capability]:
+def _synthesize_capabilities(
+    router: RouterInfo, *, snmp_community: str, nmap_used: bool,
+) -> list[Capability]:
     """Translate the router/router-API findings into VSE/VLE-readable flags."""
     caps: list[Capability] = []
 
@@ -206,6 +231,16 @@ def _synthesize_capabilities(router: RouterInfo, *, snmp_community: str) -> list
             "SNMP community supplied — VLE drift checks may use SNMP polling"
             if snmp_community
             else "no SNMP community supplied to discovery; VLE will not poll SNMP"
+        ),
+    ))
+
+    caps.append(Capability(
+        name="nmap_enrichment",
+        available=nmap_used,
+        reason=(
+            "nmap was available and enriched service/version + OS detection"
+            if nmap_used
+            else "nmap not used (binary missing or use_nmap='off') — version/OS info is best-effort"
         ),
     ))
 

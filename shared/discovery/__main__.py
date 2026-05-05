@@ -23,6 +23,7 @@ from pathlib import Path
 
 import typer
 
+from .. import logging as vlogging
 from ..cli import fatal, make_app, run_app
 from . import markdown, scan
 from .report import DiscoveryReport
@@ -60,6 +61,10 @@ def cmd_scan(
         "", "--snmp-community",
         help="SNMP v2c community for sysDescr probe. Empty = no SNMP.",
     ),
+    use_nmap: str = typer.Option(
+        "auto", "--use-nmap",
+        help="Use nmap if available: 'auto' (default), 'on' (require), 'off' (skip).",
+    ),
     timeout_s: float = typer.Option(
         0.6, "--timeout",
         help="TCP connect timeout per probe (seconds).",
@@ -80,10 +85,7 @@ def cmd_scan(
 ) -> None:
     """Run a discovery scan and write JSON + Markdown reports."""
     level = logging.WARNING if quiet else (logging.DEBUG if verbose else logging.INFO)
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
-    )
+    vlogging.configure(level=level)
 
     port_list: list[int] = []
     if ports:
@@ -101,6 +103,7 @@ def cmd_scan(
         do_active=not no_active,
         do_fingerprint=not no_fingerprint,
         snmp_community=snmp_community,
+        use_nmap=use_nmap,
         timeout_s=timeout_s,
         workers=workers,
     )

@@ -24,11 +24,17 @@ from urllib.parse import urlparse
 
 import requests
 
+from .._retry import TransientAPIError, transient_retry
+
 log = logging.getLogger("velocitee.proxmox")
 
 
 class ProxmoxAPIError(RuntimeError):
     """API call returned a non-2xx response or unexpected body."""
+
+
+class ProxmoxTransientError(ProxmoxAPIError, TransientAPIError):
+    """5xx or connection-level error worth retrying. See shared._retry."""
 
 
 class ProxmoxClient:
@@ -76,14 +82,19 @@ class ProxmoxClient:
     # Low level
     # -----------------------------------------------------------------
 
+    @transient_retry()
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         url = self.base + path
         kwargs.setdefault("timeout", self._timeout)
         try:
             resp = self._session.request(method, url, **kwargs)
         except requests.RequestException as exc:
-            raise ProxmoxAPIError(f"{method} {path} failed: {exc}") from exc
+            raise ProxmoxTransientError(f"{method} {path} network error: {exc}") from exc
 
+        if 500 <= resp.status_code < 600:
+            raise ProxmoxTransientError(
+                f"{method} {path} → HTTP {resp.status_code}: {resp.text.strip()[:200]}"
+            )
         if resp.status_code >= 400:
             raise ProxmoxAPIError(
                 f"{method} {path} → HTTP {resp.status_code}: {resp.text.strip()[:500]}"

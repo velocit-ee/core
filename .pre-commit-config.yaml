@@ -1,0 +1,42 @@
+# pre-commit hooks for velocitee/core.
+#
+# Install once per clone:
+#     pip install pre-commit
+#     pre-commit install
+#
+# Run manually against the whole repo:
+#     pre-commit run --all-files
+#
+# Hook order matters here — hygiene fixers run first so the linters see
+# clean inputs.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: ["--unsafe"]   # GitHub Actions and Ansible YAMLs use custom tags
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: schema-validate
+        # Lightweight self-check: every *.schema.json file must be valid
+        # JSON Schema Draft 7. Catches typos before CI does.
+        name: schema-validate (local)
+        entry: python -c "import json,sys,jsonschema; [jsonschema.Draft7Validator.check_schema(json.load(open(p))) for p in sys.argv[1:]]"
+        language: system
+        files: '\.schema\.json$'

@@ -2,7 +2,23 @@
 # All fields shown here are recognised by `vme deploy`.
 # The wizard (vme setup) writes this file for you interactively.
 
+# ── Backend selection ───────────────────────────────────────────────────────
+# Which provisioning backend to use. Default is 'builtin' — VME runs its own
+# dnsmasq + iPXE + nginx seed stack on this machine. Set to 'maas' to hand
+# provisioning off to an existing Canonical MAAS deployment instead (you'll
+# also need MAAS_URL + MAAS_API_KEY in the environment).
+backend: builtin
+
+# Optional MAAS settings — only consulted when backend: maas.
+# maas:
+#   url: "https://maas.lab.local:5240"   # or set via MAAS_URL env var
+#   # api_key kept out of config files — set via MAAS_API_KEY env var
+#   # system_id: "abc123"                # pin a specific MAAS machine; otherwise
+#                                         # we look up by target.hostname or target.mac
+#   # distro_series: "noble"             # override the series mapped from target.os
+
 # ── Seed machine ────────────────────────────────────────────────────────────
+# (only used when backend: builtin)
 
 # Network interface on the seed machine connected to the provisioning network.
 provisioning_interface: eth1

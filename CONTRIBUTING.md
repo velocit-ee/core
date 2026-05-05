@@ -24,3 +24,22 @@ first to discuss before writing code.
 - If your change affects the handoff manifest schema, document it
 - All Python code must pass `ruff check` — run `ruff check vme/cli/ shared/` before submitting
 - Tests must pass: `cd vme && python -m pytest`
+
+## Pre-commit hooks
+
+We use [pre-commit](https://pre-commit.com) to run formatters, linters, and
+schema validation before each commit. One-time setup per clone:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+To run the same checks against everything in the repo:
+
+```bash
+pre-commit run --all-files
+```
+
+The hook set is defined in `.pre-commit-config.yaml`. CI runs the same
+hooks; getting them green locally means you'll get them green on your PR.
