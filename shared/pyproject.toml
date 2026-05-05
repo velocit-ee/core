@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "velocitee-shared"
-version = "0.2.0"
+version = "0.3.0"
 description = "Shared utilities for velocitee engines"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
@@ -14,7 +14,17 @@ dependencies = [
     "pydantic>=2.6,<3.0",
 ]
 
+[project.optional-dependencies]
+discovery_opnsense = [
+    # Used by the OPNsense router adapter to pull live state during a join.
+    # Other discovery code paths are pure stdlib.
+    "requests>=2.28",
+]
+
+[project.scripts]
+velocitee-discover = "shared.discovery.__main__:main"
+
 [tool.setuptools]
-packages = ["shared"]
+packages = ["shared", "shared.renderers", "shared.discovery", "shared.discovery.adapters"]
 package-dir = {"shared" = "."}
 include-package-data = true

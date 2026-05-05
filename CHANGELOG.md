@@ -8,6 +8,51 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — discovery toolkit & VNE Path B (join existing network)
+
+**`shared/discovery/` — common scanning, documentation & diagnostics tool**
+- `DiscoveryReport` Pydantic model (JSON + Markdown rendering) — single
+  artifact consumed by VNE join, VSE inventory, and VLE drift baselines
+- Local introspection (`network.py`): interfaces via `ip(8)` / sysfs,
+  default gateway via `ip route` / `/proc/net/route`, DNS resolvers from
+  `/etc/resolv.conf` (with systemd-resolved stub unwrap via `resolvectl`),
+  DHCP lease parsing from dhclient + networkd
+- Passive discovery (`passive.py`): kernel ARP/neighbor table, mDNS UDP/5353
+  multicast listener, SSDP UDP/1900 with single M-SEARCH probe
+- Active discovery (`active.py`): concurrent TCP-connect host sweep + port
+  scan over a 40-port management/infra port set; ThreadPoolExecutor, no
+  raw sockets, no scapy/nmap dep — works in unprivileged containers
+- Service fingerprinting (`fingerprint.py`): SSH banner, HTTP `<title>` +
+  `Server` header, HTTPS with TLS SAN extraction, optional SNMP v2c
+  `sysDescr.0` (hand-rolled BER, no pysnmp)
+- Router identification (`routers.py`): heuristic vendor detection with
+  confidence score for OPNsense, pfSense, MikroTik, UniFi, EdgeOS, OpenWrt,
+  Cisco IOS, FortiGate, Proxmox + a `generic-router` fallback
+- Standalone CLI (`velocitee-discover scan|show`) writes paired
+  `discovery-report.{json,md}` artifacts
+
+**`shared/discovery/adapters/` — vendor-specific join glue**
+- `RouterAdapter` ABC + slug registry, mirroring `Renderer`
+- `unmanaged` (always available, vendor-agnostic) and `opnsense` (live
+  state pull via existing `OPNsenseClient` when API creds present)
+  implementations; stubs for pfsense / mikrotik / unifi / edgeos / openwrt
+  / cisco / fortigate reserve the slugs
+
+**VNE — Path B implemented**
+- `vne join` command — scan ▸ identify ▸ confirm ▸ adapter execute ▸
+  manifest write. Read-only end-to-end (never mutates the router)
+- `vne/join.py` orchestrator; supports both `--manifest path/to/vme.json`
+  (extending a VME run) and standalone (synthesises a minimal manifest
+  from local hostname/IP)
+- VNE manifest schema gains a `mode: "deploy" | "join"` discriminator;
+  `joined_network` and `capabilities` blocks required when mode=join,
+  `opnsense`/`vlans`/`dns`/`verification` required when mode=deploy
+- Existing `vne deploy --join-existing` flag now forwards to `vne join`
+  with a deprecation warning instead of exiting 1
+
+**`velocitee-shared` 0.3.0** — packages discovery + adapters; bumps
+`vne` dependency floor; adds `velocitee-discover` console script.
+
 ### Changed — relicense
 
 - **Engines relicensed from AGPL v3 → Apache License, Version 2.0.** All five
