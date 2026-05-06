@@ -3,11 +3,15 @@
 [![CI](https://github.com/velocit-ee/core/actions/workflows/ci.yml/badge.svg)](https://github.com/velocit-ee/core/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
 
-**Phase 2 · Stable** — takes a provisioned Proxmox host (the output of VME) and
-turns it into a fully configured network — OPNsense VM, VLANs, DHCP, DNS, and
-a firewall baseline — without the operator ever touching HCL, playbooks, or
-`config.xml`. Or skip provisioning entirely and `vne join` an existing
-network.
+<!-- ENGINE-STATUS:BEGIN region=engine-pill-vne -->
+**Phase 2 · Stable**
+<!-- ENGINE-STATUS:END region=engine-pill-vne -->
+
+Takes a provisioned Proxmox host (the output of VME) and turns it into
+a fully configured network — OPNsense VM, VLANs, DHCP, DNS, and a
+firewall baseline — without the operator ever touching HCL, playbooks,
+or `config.xml`. Or skip provisioning entirely and `vne join` an
+existing network.
 
 ---
 

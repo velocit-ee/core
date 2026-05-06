@@ -3,10 +3,14 @@
 [![CI](https://github.com/velocit-ee/core/actions/workflows/ci.yml/badge.svg)](https://github.com/velocit-ee/core/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
 
-**Phase 1 · Stable** — turns bare, unconfigured hardware into a provisioned
-machine running Proxmox VE or Ubuntu Server. Two backends ship: the default
-`builtin` seed stack runs on a laptop or a Pi; the optional `maas` backend
-hands provisioning off to an existing Canonical MAAS deployment.
+<!-- ENGINE-STATUS:BEGIN region=engine-pill-vme -->
+**Phase 1 · Stable**
+<!-- ENGINE-STATUS:END region=engine-pill-vme -->
+
+Turns bare, unconfigured hardware into a provisioned machine running
+Proxmox VE or Ubuntu Server. Two backends ship: the default `builtin`
+seed stack runs on a laptop or a Pi; the optional `maas` backend hands
+provisioning off to an existing Canonical MAAS deployment.
 
 ---
 

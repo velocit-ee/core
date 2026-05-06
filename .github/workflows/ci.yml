@@ -45,3 +45,13 @@ jobs:
       - name: Test shared
         run: |
           PYTHONPATH=. python -m pytest shared/tests/ --tb=short -q
+
+      - name: Test docs renderer
+        run: |
+          PYTHONPATH=. python -m pytest tools/tests/ --tb=short -q
+
+      - name: Verify engines.json drift
+        # Fails the job if any marker-delimited region in core READMEs /
+        # CHANGELOG has drifted from engines.json. Fix locally with:
+        #   python tools/render_engine_status.py --write
+        run: python tools/render_engine_status.py --check
