@@ -179,14 +179,11 @@ Initial public release of the velocitee engine stack.
 - `shared/manifest.py` — manifest build, validation, write, load, and `append_engine()` for pipeline continuity
 - `shared/schema.json` — JSON Schema v7 contract for the inter-engine handoff manifest
 
-### Engines
-| Engine | Status |
-|--------|--------|
-| VME    | Active |
-| VNE    | Planned — phase 2 |
-| VSE    | Planned — phase 3 |
-| VLE    | Planned — phase 4 |
-
 ---
 
 *Releases before v0.1.0 were internal development iterations.*
+
+> Engine status (Stable / Planned) is tracked at the top of this changelog
+> under the [Unreleased] section, sourced from `engines.json`. Per-release
+> status snapshots have been removed — they captured a moment in time that
+> stopped being useful once newer engines shipped.
