@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "shared": {
+    "library": "velocitee-shared",
+    "version": "0.4.0"
+  },
+  "engines": [
+    {
+      "slug": "vme",
+      "name": "velocitee metal provisioning engine",
+      "phase": 1,
+      "status": "Stable",
+      "version": "0.1.0",
+      "verb": "provision",
+      "short": "Bare-metal provisioning — PXE boot + unattended OS install (Proxmox VE, Ubuntu Server). Two backends: `builtin` seed stack or `maas` (optional).",
+      "long": "Turns bare, unconfigured hardware into a provisioned machine running Proxmox VE or Ubuntu Server. The default `builtin` backend runs a containerised seed stack (dnsmasq + nginx + iPXE + cloud-init) on a laptop or a Pi — no external services required. The optional `maas` backend hands provisioning off to an existing Canonical MAAS deployment for operators who already run one.",
+      "backends": [
+        { "slug": "builtin", "status": "Default",  "summary": "Containerised seed stack on the local machine. dnsmasq + nginx + iPXE + cloud-init. No external services." },
+        { "slug": "maas",    "status": "Optional", "summary": "Hands provisioning off to an existing Canonical MAAS region+rack via the REST API." }
+      ]
+    },
+    {
+      "slug": "vne",
+      "name": "velocitee network configuration engine",
+      "phase": 2,
+      "status": "Stable",
+      "version": "0.1.0",
+      "verb": "network",
+      "short": "Network configuration — OPNsense VM, VLANs, DHCP, DNS, firewall. Provisioner-agnostic via the renderer registry. Discovery + Path B (`vne join`) for existing networks.",
+      "long": "Two paths from one CLI. `vne deploy` provisions OPNsense as a VM on Proxmox VE, then configures VLANs, DHCP, DNS, and a baseline firewall, with an automated verification gate before declaring success. `vne join` discovers the network you're already on, identifies the gateway, picks a router adapter (OPNsense, unmanaged catch-all, or pluggable), and writes a join-mode manifest VSE/VLE can consume — read-only end-to-end.",
+      "backends": [
+        { "slug": "velocitee-native", "status": "Default",     "summary": "Pure Python — talks Proxmox + OPNsense REST directly. Owns its own state file." },
+        { "slug": "opentofu+ansible", "status": "Implemented", "summary": "OpenTofu does VM creation, Ansible does network config. Hard phase gate between the two." }
+      ]
+    },
+    {
+      "slug": "vse",
+      "name": "velocitee services configuration engine",
+      "phase": 3,
+      "status": "Planned",
+      "version": "0.0.0",
+      "verb": "services",
+      "short": "Services — containerised stack deployment, idempotent configuration",
+      "long": "Deploys containerised services onto the verified network using idempotent Ansible roles, driven by a config bundle. Designed to be re-run safely at any time — services converge on the declared state rather than being imperatively installed once."
+    },
+    {
+      "slug": "vle",
+      "name": "velocitee lifecycle engine",
+      "phase": 4,
+      "status": "Planned",
+      "version": "0.0.0",
+      "verb": "lifecycle",
+      "short": "Lifecycle — monitoring, drift detection, auto-docs, single-command repair",
+      "long": "Monitoring, auto-documentation generated from the chain of handoff manifests, configuration drift detection against the declared state, and single-command repair."
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://velocit.ee/schemas/engines/1.0",
+  "title": "velocit.ee engines.json",
+  "description": "Single source of truth for engine status, version, and descriptive copy. Both the velocit-ee/core README/CHANGELOG/per-engine READMEs and the velocit-ee/.github profile README regenerate from this file via tools/render_engine_status.py.",
+  "type": "object",
+  "required": ["schema_version", "engines", "shared"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Increment on incompatible changes to the file format."
+    },
+    "shared": {
+      "type": "object",
+      "description": "Stable cross-engine facts referenced by templates.",
+      "required": ["library", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "library": {
+          "type": "string",
+          "description": "Name of the shared Python library packaging cross-engine code (currently 'velocitee-shared')."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Current released version of the shared library."
+        }
+      }
+    },
+    "engines": {
+      "type": "array",
+      "description": "Engines listed in pipeline order (VME → VNE → VSE → VLE). Order is significant: tables and pipeline diagrams render in this sequence.",
+      "minItems": 4,
+      "items": { "$ref": "#/definitions/Engine" }
+    }
+  },
+  "definitions": {
+    "Engine": {
+      "type": "object",
+      "required": ["slug", "name", "phase", "status", "version", "short", "long", "verb"],
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "type": "string",
+          "enum": ["vme", "vne", "vse", "vle"],
+          "description": "Three-letter engine identifier."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human name, e.g. 'velocitee metal provisioning engine'."
+        },
+        "phase": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "Position in the pipeline."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Stable", "Planned"],
+          "description": "Two-state model. 'Stable' = engine implements its declared scope and is usable. 'Planned' = no implementation yet."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Current released version. Empty string '0.0.0' for engines with no implementation yet."
+        },
+        "short": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "Description for the engine table row. One sentence, fits on one row of a 120-col terminal."
+        },
+        "long": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One- or two-paragraph description suitable for marketing surfaces. Markdown allowed."
+        },
+        "verb": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24,
+          "description": "Pipeline-diagram label. Lowercase noun phrase: 'provision', 'network', 'services', 'lifecycle'."
+        },
+        "backends": {
+          "type": "array",
+          "description": "Optional: per-engine selectable backends listed in priority order.",
+          "items": {
+            "type": "object",
+            "required": ["slug", "status", "summary"],
+            "additionalProperties": false,
+            "properties": {
+              "slug":   { "type": "string", "minLength": 1 },
+              "status": { "type": "string", "enum": ["Default", "Optional", "Stub", "Implemented"] },
+              "summary": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

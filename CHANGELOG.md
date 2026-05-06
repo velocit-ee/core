@@ -147,12 +147,14 @@ to the dependency floor; `vme` and `vne` bump their shared dep accordingly.
 - `shared/renderers/` — concrete renderer implementations and shared API clients (Proxmox, OPNsense)
 
 ### Engines
-| Engine | Phase | Status  |
-|--------|:-----:|---------|
-| VME    | 1     | Stable  |
-| VNE    | 2     | Stable  |
-| VSE    | 3     | Planned |
-| VLE    | 4     | Planned |
+<!-- ENGINE-STATUS:BEGIN region=engine-table-unreleased -->
+| Engine  | Phase | Status  |
+|---------|:-----:|---------|
+| **VME** | 1     | Stable  |
+| **VNE** | 2     | Stable  |
+| VSE     | 3     | Planned |
+| VLE     | 4     | Planned |
+<!-- ENGINE-STATUS:END region=engine-table-unreleased -->
 
 ---
 

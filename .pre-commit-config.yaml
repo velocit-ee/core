@@ -40,3 +40,14 @@ repos:
         entry: python -c "import json,sys,jsonschema; [jsonschema.Draft7Validator.check_schema(json.load(open(p))) for p in sys.argv[1:]]"
         language: system
         files: '\.schema\.json$'
+
+      - id: render-engine-status
+        # Single source of truth for engine status/version is engines.json.
+        # This hook regenerates the marker-delimited regions in READMEs +
+        # CHANGELOG so the rendered markdown can never drift from the data.
+        name: render-engine-status (local)
+        entry: python tools/render_engine_status.py --write
+        language: system
+        # Run when engines.json or any target file changes.
+        files: '^(engines\.json|tools/render_engine_status\.py|tools/engines_schema\.json|README\.md|CHANGELOG\.md|vme/README\.md|vne/README\.md)$'
+        pass_filenames: false
