@@ -74,6 +74,19 @@ TARGETS_DOTGITHUB: list[tuple[str, str]] = [
     ("profile/README.md", "trailing-status"),
 ]
 
+# velocit-ee/docs — the MkDocs Material site that powers docs.velocit.ee.
+# Reuses the same region renderers as the other repos. The CHANGELOG on the
+# docs site is *not* in this list — it's pulled in via mkdocs-include-markdown
+# at build time from the canonical CHANGELOG.md in velocit-ee/core.
+TARGETS_DOCS: list[tuple[str, str]] = [
+    ("docs/index.md",             "engine-table"),
+    ("docs/what-is-velocitee.md", "engine-table"),
+    ("docs/vme/index.md",         "engine-pill-vme"),
+    ("docs/vne/index.md",         "engine-pill-vne"),
+    ("docs/vse.md",               "engine-pill-vse"),
+    ("docs/vle.md",               "engine-pill-vle"),
+]
+
 # Pattern for marker pairs. Captures the whole block (markers + body)
 # so we can replace it wholesale.
 _MARKER = re.compile(
@@ -267,11 +280,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument(
         "--targets",
-        choices=("core", "dotgithub", "auto"),
+        choices=("core", "dotgithub", "docs", "auto"),
         default="auto",
         help=(
-            "Which target list to apply. 'auto' detects: if --root contains "
-            "profile/README.md it picks dotgithub, otherwise core."
+            "Which target list to apply. 'auto' detects: profile/README.md "
+            "→ dotgithub; mkdocs.yml → docs; otherwise core."
         ),
     )
     mode = p.add_mutually_exclusive_group()
@@ -289,9 +302,15 @@ def main(argv: list[str] | None = None) -> int:
     if targets_choice == "auto":
         if (args.root / "profile" / "README.md").exists():
             targets_choice = "dotgithub"
+        elif (args.root / "mkdocs.yml").exists():
+            targets_choice = "docs"
         else:
             targets_choice = "core"
-    targets = TARGETS_CORE if targets_choice == "core" else TARGETS_DOTGITHUB
+    targets = {
+        "core":      TARGETS_CORE,
+        "dotgithub": TARGETS_DOTGITHUB,
+        "docs":      TARGETS_DOCS,
+    }[targets_choice]
 
     drifted: list[str] = []
     for relpath, _region in targets:
