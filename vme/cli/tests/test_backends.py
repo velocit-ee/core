@@ -52,10 +52,8 @@ def test_lookup_unknown_raises() -> None:
 @pytest.mark.parametrize(
     ("slug", "expected"),
     [
-        ("ubuntu-22.04", "jammy"),
-        ("ubuntu-24.04", "noble"),
-        ("ubuntu-server-22.04", "jammy"),
-        ("ubuntu-server-24.04", "noble"),
+        # The registry's real slug (see cli/os_registry.py) — "latest LTS".
+        ("ubuntu-server", "noble"),
         # Unknown slug passes through unchanged so users with custom
         # MAAS images can keep their config working.
         ("my-custom-image", "my-custom-image"),
@@ -64,6 +62,19 @@ def test_lookup_unknown_raises() -> None:
 )
 def test_maas_distro_series_mapping(slug: str, expected: str) -> None:
     assert _maas_distro_series(slug) == expected
+
+
+def test_maas_distro_series_covers_registry_slugs() -> None:
+    """Guard against the mapping drifting away from the OS registry again:
+    every non-Proxmox registry slug must map to something MAAS understands."""
+    from vme.cli.os_registry import OS_REGISTRY
+
+    for slug in OS_REGISTRY:
+        if slug == "proxmox-ve":
+            continue  # rejected explicitly in MAASBackend.deploy
+        assert _maas_distro_series(slug) != slug, (
+            f"registry slug '{slug}' has no MAAS distro mapping — add one"
+        )
 
 
 # ---------------------------------------------------------------------------

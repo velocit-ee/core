@@ -158,7 +158,9 @@ class AnsibleRenderer(Renderer):
             "opnsense_api_endpoint": f"https://{infra['outputs']['opnsense_ip']}",
             "opnsense_api_key": "{{ lookup('env', 'OPNSENSE_API_KEY') }}",
             "opnsense_api_secret": "{{ lookup('env', 'OPNSENSE_API_SECRET') }}",
-            "opnsense_ssl_verify": False,
+            # TLS verification is on unless the operator opted out — same
+            # OPNSENSE_INSECURE=1 contract as every other client in the stack.
+            "opnsense_ssl_verify": os.environ.get("OPNSENSE_INSECURE", "0") != "1",
             "vlans": intent.get("vlans", []),
             "dns_upstream": intent.get("dns_upstream", []),
             "dns_domain": intent.get("domain", "lab.local"),

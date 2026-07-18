@@ -34,6 +34,12 @@ _REPO_ROOT       = Path(__file__).parent.parent
 _LOG_DIR         = Path("~/.velocitee/logs").expanduser()
 _MANIFEST_OUTDIR = _REPO_ROOT / "manifests" / "output"
 
+
+def _manifest_outdir(cfg: dict) -> Path:
+    """Manifest output dir — honors `manifest_output_dir` in vme-config.yml."""
+    raw = cfg.get("manifest_output_dir")
+    return Path(raw).expanduser() if raw else _MANIFEST_OUTDIR
+
 _LINE = "═" * 60
 
 
@@ -524,7 +530,6 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
         "TARGET_NIC":             "eth0",
         "TARGET_TIMEZONE":        target.get("timezone", "UTC"),
         "TARGET_SSH_PUBLIC_KEY":  target.get("ssh_public_key", ""),
-        "TARGET_ROOT_PASSWORD":   target.get("root_password", "changeme"),
         "TARGET_EMAIL":           target.get("email", "root@localhost"),
         "TARGET_PASSWORD_HASH":   target.get("password_hash", ""),
     }
@@ -825,7 +830,7 @@ def _run_external_backend(slug: str, cfg: dict, config_path: Path, *, verbose: b
             started_at=result.started_at,
             completed_at=result.completed_at,
         )
-    except (ValueError, Exception) as exc:
+    except Exception as exc:
         fatal(f"could not build manifest from {slug} backend: {exc}")
 
     # Annotate with backend-specific extras under engines.vme so consumers
@@ -835,7 +840,7 @@ def _run_external_backend(slug: str, cfg: dict, config_path: Path, *, verbose: b
         "backend_extra": result.extra,
     })
 
-    manifest_path = mf.write(manifest, _MANIFEST_OUTDIR)
+    manifest_path = mf.write(manifest, _manifest_outdir(cfg))
     typer.echo(f"\nWrote manifest: {manifest_path}")
     _prompt_next_engine(manifest_path)
 
@@ -947,8 +952,8 @@ def deploy(
             completed_at=completed_at,
         )
         manifest.setdefault("engines", {}).setdefault("vme", {})["backend"] = "builtin"
-        manifest_path = mf.write(manifest, _MANIFEST_OUTDIR)
-    except (ValueError, Exception) as exc:
+        manifest_path = mf.write(manifest, _manifest_outdir(cfg))
+    except Exception as exc:
         warn(f"could not write manifest: {exc}")
         manifest_path = Path("(not written)")
 
@@ -973,7 +978,7 @@ def status(
 @app.command()
 def reset(
     config: Path        = typer.Option(_CONFIG_DEFAULT, "--config", "-c", help="Path to vme-config.yml"),
-    include_config: bool = typer.Option(False, "--config-only", help="Also delete vme-config.yml (requires re-running vme setup)."),
+    include_config: bool = typer.Option(False, "--delete-config", "--config-only", help="Also delete vme-config.yml (requires re-running vme setup). --config-only is a deprecated alias."),
     include_images: bool = typer.Option(False, "--images",      help="Also delete cached OS images (~3–8 GB)."),
     full:           bool = typer.Option(False, "--full",         help="Delete everything: stack, run/, config, and cached images."),
     yes:            bool = typer.Option(False, "--yes", "-y",    help="Skip confirmation prompt."),
@@ -986,9 +991,9 @@ def reset(
 
     \b
     Flags:
-      --config-only   also delete vme-config.yml  (re-run 'vme setup' after)
-      --images        also delete cached OS images (~3-8 GB freed)
-      --full          delete everything (stack + run/ + config + images)
+      --delete-config  also delete vme-config.yml  (re-run 'vme setup' after)
+      --images         also delete cached OS images (~3-8 GB freed)
+      --full           delete everything (stack + run/ + config + images)
     """
     if full:
         include_config = True

@@ -23,8 +23,11 @@ _UBUNTU_RELEASES_BASE = "https://releases.ubuntu.com/"
 def _resolve_proxmox_latest() -> tuple[str, str, str]:
     """Return (version, iso_url, sha256_url) for the latest Proxmox VE release.
 
-    Falls back to HTTP if Proxmox's server presents an invalid TLS certificate.
-    The ISO integrity is guaranteed by SHA-256 verification after download.
+    Falls back to HTTP for the *index and ISO payload* if Proxmox's server
+    presents an invalid TLS certificate — but the SHA256SUMS URL is always
+    built from the HTTPS base. Verifying an ISO against a checksum fetched
+    over the same insecure channel would prove nothing; the checksum is the
+    trust anchor, so it never downgrades.
     """
     base = _PROXMOX_INDEX_URL
     try:
@@ -32,11 +35,11 @@ def _resolve_proxmox_latest() -> tuple[str, str, str]:
         resp.raise_for_status()
     except requests.exceptions.SSLError:
         # Proxmox occasionally deploys the wrong cert to download.proxmox.com.
-        # Fall back to HTTP for all Proxmox URLs in this resolution. The ISO is
-        # always SHA-256 verified after download, so integrity is not compromised.
+        # The index only lists filenames and the ISO is verified against the
+        # HTTPS-fetched checksum, so downgrading these two is acceptable.
         base = base.replace("https://", "http://", 1)
-        print("  Warning: TLS certificate mismatch on download.proxmox.com — using HTTP.")
-        print("  The ISO will be SHA-256 verified after download.")
+        print("  Warning: TLS certificate mismatch on download.proxmox.com — fetching ISO over HTTP.")
+        print("  Integrity comes from the SHA256SUMS file, which is still fetched over HTTPS.")
         resp = requests.get(base, timeout=30)
         resp.raise_for_status()
 
@@ -56,7 +59,8 @@ def _resolve_proxmox_latest() -> tuple[str, str, str]:
     matches.sort(key=_version_key, reverse=True)
     filename, version = matches[0]
     iso_url = urljoin(base, filename)
-    sha256_url = urljoin(base, "SHA256SUMS")
+    # Always HTTPS — never the (possibly downgraded) `base`.
+    sha256_url = urljoin(_PROXMOX_INDEX_URL, "SHA256SUMS")
     return version, iso_url, sha256_url
 
 
@@ -229,7 +233,19 @@ def ensure_image(os_name: str, config: dict) -> Path:
     if dest.exists():
         return dest
 
+    # Fetch the expected checksum *before* the multi-GB download: fails fast
+    # when the checksum host is unreachable, and an ISO is never cached
+    # without having been verified. No checksum, no image — a cached-but-
+    # unverified ISO would be served to every future deploy silently.
     print(f"  Resolving {os_name} → version {version}")
+    try:
+        expected = _expected_sha256(sha256_url, filename)
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            f"Could not fetch the checksum file for {filename} ({exc}).\n"
+            "  Refusing to download an unverifiable image. Check connectivity and retry."
+        ) from exc
+
     print(f"  Downloading {filename} ...")
     try:
         _download(iso_url, dest)
@@ -237,24 +253,16 @@ def ensure_image(os_name: str, config: dict) -> Path:
         raise RuntimeError(f"Failed to download {filename}: {exc}") from exc
 
     print("  Verifying checksum ...")
-    try:
-        expected = _expected_sha256(sha256_url, filename)
-        actual = _sha256_file(dest)
-        if actual != expected:
-            dest.unlink()
-            raise RuntimeError(
-                f"Checksum mismatch for {filename}.\n"
-                f"  Expected: {expected}\n"
-                f"  Got:      {actual}\n"
-                "The file has been deleted. Try running 'vme images pull' again."
-            )
-        print("  Checksum OK.")
-    except RuntimeError:
-        raise
-    except requests.RequestException as exc:
-        # Checksum server unreachable — warn and keep the file rather than blocking.
-        print(f"  Warning: could not fetch checksum ({exc})")
-        print("  Skipping verification — run 'vme images pull' again to retry.")
+    actual = _sha256_file(dest)
+    if actual != expected:
+        dest.unlink()
+        raise RuntimeError(
+            f"Checksum mismatch for {filename}.\n"
+            f"  Expected: {expected}\n"
+            f"  Got:      {actual}\n"
+            "The file has been deleted. Try running 'vme images pull' again."
+        )
+    print("  Checksum OK.")
     return dest
 
 

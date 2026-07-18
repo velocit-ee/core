@@ -227,7 +227,14 @@ class MAASBackend(Backend):
         system_id = _cfg_get(cfg, "maas.system_id") or ""
 
         os_slug = target.get("os", "")
-        distro_series = _maas_distro_series(os_slug)
+        # Explicit override wins; otherwise translate the registry slug.
+        distro_series = _cfg_get(cfg, "maas.distro_series") or _maas_distro_series(os_slug)
+        if os_slug == "proxmox-ve" and not _cfg_get(cfg, "maas.distro_series"):
+            return _failed(
+                "maas", started_at,
+                "MAAS does not ship Proxmox VE images. Upload a custom image to MAAS "
+                "and set maas.distro_series in vme-config.yml to its name.",
+            )
 
         try:
             client = MAASClient(url, api_key, verify_ssl=verify_ssl)
@@ -334,19 +341,17 @@ class MAASBackend(Backend):
 def _maas_distro_series(os_slug: str) -> str:
     """Translate VME's OS_REGISTRY slugs into MAAS distro_series codenames.
 
-    MAAS does not natively ship Proxmox VE; users with Proxmox in their
-    MAAS catalog supply a custom image and reference it via
-    `maas.distro_series` in vme-config.yml. For the common Ubuntu LTS
-    paths we map slugs to the obvious series codename so the config
-    doesn't need to know MAAS-specific naming.
+    The registry's actual slugs are 'ubuntu-server' and 'proxmox-ve' (see
+    cli/os_registry.py) — the mapping must use those, not versioned names
+    that no config will ever contain. 'ubuntu-server' means "latest LTS"
+    everywhere else in VME, so it maps to the newest LTS series MAAS ships.
+    Anything unknown passes through so custom MAAS image names keep working;
+    Proxmox is rejected earlier in deploy() unless maas.distro_series is set.
     """
     if not os_slug:
         return ""
     mapping = {
-        "ubuntu-22.04": "jammy",
-        "ubuntu-24.04": "noble",
-        "ubuntu-server-22.04": "jammy",
-        "ubuntu-server-24.04": "noble",
+        "ubuntu-server": "noble",   # latest LTS — bump alongside os_registry
     }
     return mapping.get(os_slug, os_slug)
 

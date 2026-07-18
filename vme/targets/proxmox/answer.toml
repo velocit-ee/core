@@ -6,7 +6,10 @@
 keyboard = "en-us"
 country = "de"
 fqdn = "${TARGET_HOSTNAME}.${TARGET_DOMAIN}"
-root-password = "${TARGET_ROOT_PASSWORD}"
+# SHA-512 crypt hash written by `vme setup` (target.password_hash).
+# The installer accepts the hashed form directly — VME never renders a
+# plaintext root password into this file.
+root-password-hashed = "${TARGET_PASSWORD_HASH}"
 mailto = "${TARGET_EMAIL}"
 timezone = "${TARGET_TIMEZONE}"
 

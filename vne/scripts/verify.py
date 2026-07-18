@@ -131,18 +131,24 @@ def check_internet_egress(
     target_port: int = 443,
     timeout: float = 8.0,
 ) -> CheckResult:
-    """TCP-connect to a known anycast endpoint. We use TCP, not ICMP — many
-    networks (and OPNsense's WAN block-bogons rule for any short period of
-    transition state) drop ping but allow established TCP."""
+    """TCP-connect to a known anycast endpoint from the machine running VNE.
+
+    Honesty note: this validates the *seed machine's* egress, not egress
+    through the freshly deployed OPNsense — the seed usually isn't routed
+    through the new appliance yet. It still catches the common failure
+    (seed lost connectivity mid-deploy, so later checks would lie), and the
+    DNS check above is the one that actually exercises the new network path.
+    Recorded as 'seed_egress' so the manifest doesn't overclaim.
+    """
     start = time.monotonic()
     try:
         with socket.create_connection((target_ip, target_port), timeout=timeout):
             elapsed = (time.monotonic() - start) * 1000
-        return CheckResult("internet_egress", True,
-                           f"TCP {target_ip}:{target_port} reached in {elapsed:.0f} ms")
+        return CheckResult("seed_egress", True,
+                           f"TCP {target_ip}:{target_port} reached from seed in {elapsed:.0f} ms")
     except OSError as exc:
-        return CheckResult("internet_egress", False,
-                           f"TCP {target_ip}:{target_port} unreachable: {exc}")
+        return CheckResult("seed_egress", False,
+                           f"TCP {target_ip}:{target_port} unreachable from seed: {exc}")
 
 
 def check_vlans_up(

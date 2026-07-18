@@ -15,8 +15,9 @@ Flow:
   7. Run verify.py — gate. If anything fails here, do *not* write a manifest.
   8. Append the engines.vne record to the VME manifest and persist.
 
-Path B (join existing network instead of provisioning a new OPNsense): not
-implemented. Exit 1 with a clear message if requested.
+Path B (join an existing network instead of provisioning a new OPNsense) is
+implemented in vne/join.py and exposed as `vne join`; the legacy
+`--join-existing` flag on `vne deploy` forwards there.
 """
 
 from __future__ import annotations
@@ -254,7 +255,7 @@ def deploy(
     )
     api_secret = os.environ.get("OPNSENSE_API_SECRET")
 
-    passed, _checks = vne_verify.run_all(
+    passed, checks = vne_verify.run_all(
         opnsense_ip=opnsense_ip,
         expected_vlan_ids=[v.id for v in intent.network.vlans],
         api_key=api_key,
@@ -270,7 +271,7 @@ def deploy(
     typer.echo("[7/7] Writing VNE output manifest ...")
     completed_at = datetime.now(timezone.utc)
 
-    extra = _build_vne_record(intent, result.aggregated_outputs, vme_data, provisioner)
+    extra = _build_vne_record(intent, result.aggregated_outputs, vme_data, provisioner, checks)
     manifest = mf.append_engine(
         dict(vme_data),
         engine="vne",
@@ -346,8 +347,13 @@ def _build_vne_record(
     outputs: dict[str, Any],
     vme_data: dict[str, Any],
     provisioner: str,
+    checks: list[Any],
 ) -> dict[str, Any]:
-    """Assemble the engines.vne entry for the output manifest."""
+    """Assemble the engines.vne entry for the output manifest.
+
+    `checks` are the actual CheckResults from verify.run_all — the manifest
+    records what was measured, never a hardcoded all-clear.
+    """
     return {
         "mode": "deploy",
         "provisioner": provisioner,
@@ -377,13 +383,8 @@ def _build_vne_record(
             "upstream": list(intent.network.dns.upstream),
         },
         "verification": {
-            "passed": True,
-            "checks": {
-                "api_reachable": True,
-                "dns_resolving": True,
-                "internet_egress": True,
-                "vlans_up": True,
-            },
+            "passed": all(c.passed for c in checks),
+            "checks": {c.name: c.passed for c in checks},
         },
         "proxmox_host": {
             "ip": vme_data["target"]["ip"],

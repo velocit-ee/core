@@ -8,6 +8,59 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — phase 1 correctness & security pass
+
+Security
+- **Proxmox targets no longer ship a default `changeme` root password.** The
+  answer file now uses `root-password-hashed` fed from `target.password_hash`;
+  the plaintext template variable and its `changeme` fallback are gone, and
+  preflight fails when no hash is present.
+- **ISO checksums are always fetched over HTTPS**, never the (possibly
+  cert-downgraded) HTTP mirror. The checksum is fetched *before* the multi-GB
+  download and an image is never cached without being verified — a failed
+  checksum fetch now aborts instead of silently keeping an unverified ISO.
+- **The renderer state file is written `0600` in a `0700` directory** — it can
+  hold OPNsense API credentials across resumes.
+- The OpenTofu/Ansible backend and the native renderer now honor
+  `OPNSENSE_INSECURE` instead of hardcoding TLS verification off.
+
+Correctness
+- **OpenTofu backend now generates valid HCL.** `variables.tf` used
+  comma-separated block attributes (invalid HCL2), so `tofu init` could never
+  have succeeded. A golden-file test parses every generated `.tf` with a real
+  HCL parser in CI.
+- The OpenTofu renderer publishes `infra_manifest_path` in its outputs so the
+  Ansible phase can actually find the handoff manifest.
+- MAAS `distro_series` mapping now matches the real registry slugs
+  (`ubuntu-server`); Proxmox targets are rejected with a clear message unless
+  `maas.distro_series` is set. Honors the documented override.
+- `extract_api_credentials` parses the `<apikeys><item>` structure the
+  template actually renders (was looking for non-existent `<apikey>` tags).
+- The setup wizard's yes/no prompt honors an explicit "no" default and
+  re-asks on garbage instead of silently confirming.
+- The VNE manifest records the *actual* verification results instead of a
+  hardcoded all-clear; the seed-egress check is named honestly.
+- `manifest_output_dir` in `vme-config.yml` is now respected.
+
+Packaging
+- **The stack is now a single installable distribution.** One root
+  `pyproject.toml` builds `shared` + `vme` + `vne` (`pip install .` /
+  `pipx install .`); the three per-engine pyprojects (nonexistent build
+  backend, self-referential package discovery, top-level `shared` collision)
+  are removed. `install.sh` drops the PYTHONPATH launcher hack and also
+  installs the `vne` command for the handoff.
+- Declared the previously-undeclared `click` dependency (Typer 0.27+ no longer
+  pins it, so fresh installs broke at import).
+- The `opentofu_ansible` extra depends on `ansible-core` (2.15–2.17), not the
+  `ansible` meta-package whose versioning made the old constraint
+  unsatisfiable.
+
+Tests / CI
+- **New VNE test suite** (was zero): renderer HCL validity, config→intent,
+  config.xml round-trip, pipeline phase-gating, state resume/corruption/perms.
+- CI installs the package, proves the console scripts resolve, and runs every
+  suite from the repo root. 116 tests pass.
+
 ### Added — nmap enrichment, MAAS backend, retry/structured-logging foundation
 
 **`shared/discovery/nmap_probe.py`** — optional nmap enrichment for the

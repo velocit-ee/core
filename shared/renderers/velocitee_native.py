@@ -349,11 +349,15 @@ class VelociteeNativeRenderer(Renderer):
                 "API credentials missing from state — config.xml step did not record them"
             )
 
+        # First boot always presents a self-signed cert, so verification is
+        # off unless the operator both provisioned a trusted cert and set
+        # OPNSENSE_INSECURE=0 explicitly. The client reads the same env var
+        # every other client honors; None lets it decide.
         self._opnsense = OPNsenseClient(
             endpoint=f"https://{ip}",
             api_key=api_key,
             api_secret=api_secret,
-            verify_ssl=False,  # self-signed by default on first boot
+            verify_ssl=None,
         )
 
         if self._state.is_completed(key):

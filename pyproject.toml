@@ -1,0 +1,91 @@
+# velocitee core — single installable distribution for the whole engine stack.
+#
+# Before this, each engine directory carried its own [build-system]/[project]
+# and none of them actually built (nonexistent backend, self-referential
+# package discovery, a top-level `shared` collision). The stack only ran via
+# a PYTHONPATH launcher in install.sh. This root project replaces all of that:
+#
+#     pip install .          # or: pipx install .
+#
+# installs `shared`, `vme`, and `vne` from the flat core/ layout and exposes
+# the three console scripts. The per-engine pyproject.toml files are kept for
+# their [tool.ruff]/[tool.pytest] config only — they are no longer build roots.
+#
+# NOTE (tracked for phase 5): the import roots are still the generic names
+# `shared` / `vme` / `vne`. Moving them under a `velocitee.*` namespace is a
+# follow-up that rewrites every cross-package import; out of scope here.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "velocitee"
+version = "0.1.0"
+description = "velocitee core — open-source engine stack: bare metal to a documented, running infrastructure stack"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+authors = [{ name = "velocit.ee" }]
+dependencies = [
+    "typer>=0.12.0",
+    "click>=8.1",            # shared/cli.py uses click directly; Typer 0.27+ no longer pins it
+    "pyyaml>=6.0",
+    "jsonschema>=4.0",
+    "pydantic>=2.6,<3.0",
+    "requests>=2.28",
+    "tenacity>=8.2",
+    "structlog>=24.0",
+    "passlib>=1.7.4",
+]
+
+[project.optional-dependencies]
+# The renderer shells out to ansible-playbook / ansible-galaxy — those ship in
+# ansible-core (whose versions are 2.15/2.16/…). The `ansible` meta-package
+# uses a different scheme (8.x/9.x), so `ansible>=2.15,<2.17` was unsatisfiable.
+opentofu_ansible = ["ansible-core>=2.15,<2.18"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4.0", "python-hcl2>=4.3"]
+
+[project.scripts]
+vme = "vme.cli.vme:main"
+vne = "vne.deploy:main"
+velocitee-discover = "shared.discovery.__main__:main"
+
+[tool.setuptools]
+# Flat layout: the packages live directly under core/.
+packages = [
+    "shared",
+    "shared.renderers",
+    "shared.discovery",
+    "shared.discovery.adapters",
+    "vme",
+    "vme.cli",
+    "vme.backends",
+    "vne",
+    "vne.scripts",
+]
+include-package-data = true
+
+[tool.setuptools.package-data]
+vme = ["seed/**/*", "targets/**/*", "docker-compose.yml", "*.example.yml"]
+vne = [
+    "schema/*.json",
+    "ansible/playbooks/*.yml",
+    "ansible/roles/**/*",
+    "ansible/requirements.yml",
+    "terraform/**/*",
+]
+shared = ["schema.json", "*.json"]
+
+[tool.pytest.ini_options]
+# Run every engine's suite from the core root: `python -m pytest`
+testpaths = ["shared/tests", "vme/cli/tests", "vne/tests", "tools/tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "E402"]

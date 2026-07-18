@@ -142,37 +142,47 @@ fi
 _section "VME"
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
-    echo "  Updating existing VME installation at $INSTALL_DIR ..."
-    git -C "$INSTALL_DIR" sparse-checkout set vme shared
+    echo "  Updating existing velocitee installation at $INSTALL_DIR ..."
     git -C "$INSTALL_DIR" pull --ff-only
 else
-    echo "  Downloading VME to $INSTALL_DIR ..."
-    git clone --filter=blob:none --sparse "$REPO_URL" "$INSTALL_DIR"
-    git -C "$INSTALL_DIR" sparse-checkout set vme shared
+    echo "  Downloading velocitee to $INSTALL_DIR ..."
+    # Full checkout: the unified 'velocitee' package builds from the repo root
+    # (shared + vme + vne together). blob:none keeps the clone lean without
+    # the old sparse-checkout, which broke the single-package install.
+    git clone --filter=blob:none "$REPO_URL" "$INSTALL_DIR"
 fi
 
 VME_DIR="$INSTALL_DIR/vme"
 
-# ─── Python venv + dependencies ────────────────────────────────────────────
+# ─── Python venv + package install ─────────────────────────────────────────
+# Installs the whole 'velocitee' distribution — this also puts the 'vne'
+# command on PATH so the VME→VNE handoff just works with no second installer.
 echo "  Setting up Python environment ..."
-"$PYTHON_BIN" -m venv "$VME_DIR/.venv"
-"$VME_DIR/.venv/bin/pip" install -q --upgrade pip
-"$VME_DIR/.venv/bin/pip" install -q -r "$VME_DIR/requirements.txt"
+"$PYTHON_BIN" -m venv "$INSTALL_DIR/.venv"
+"$INSTALL_DIR/.venv/bin/pip" install -q --upgrade pip
+"$INSTALL_DIR/.venv/bin/pip" install -q "$INSTALL_DIR"
 
 # ─── Create the `vme` command ──────────────────────────────────────────────
+# pip installed the 'vme' console script into the venv; forward to it. The
+# only wrinkle is the docker group on first run (before the user re-logs in).
 echo "  Installing 'vme' command to $BIN_DIR ..."
 sudo tee "$BIN_DIR/vme" > /dev/null <<EOF
 #!/usr/bin/env bash
 # VME launcher — created by install.sh
-# INSTALL_DIR is added to PYTHONPATH so 'shared' is importable by all engines.
-cd "$VME_DIR"
-export PYTHONPATH="$INSTALL_DIR\${PYTHONPATH:+:\$PYTHONPATH}"
-if ! docker info &>/dev/null 2>&1 && groups | grep -qv docker && getent group docker &>/dev/null; then
-    exec sg docker -c "PYTHONPATH=$INSTALL_DIR \${PYTHONPATH:+:\$PYTHONPATH} $VME_DIR/.venv/bin/python -m cli.vme \$*"
+if ! docker info &>/dev/null 2>&1 && ! groups | grep -q '\bdocker\b' && getent group docker &>/dev/null; then
+    exec sg docker -c "$INSTALL_DIR/.venv/bin/vme \$*"
 fi
-exec "$VME_DIR/.venv/bin/python" -m cli.vme "\$@"
+exec "$INSTALL_DIR/.venv/bin/vme" "\$@"
 EOF
 sudo chmod +x "$BIN_DIR/vme"
+
+# Also expose 'vne' so the handoff prompt at the end of 'vme deploy' works.
+sudo tee "$BIN_DIR/vne" > /dev/null <<EOF
+#!/usr/bin/env bash
+# VNE launcher — created by install.sh
+exec "$INSTALL_DIR/.venv/bin/vne" "\$@"
+EOF
+sudo chmod +x "$BIN_DIR/vne"
 
 # ─── Done ──────────────────────────────────────────────────────────────────
 echo

@@ -57,12 +57,22 @@ def _ask_choice(prompt: str, options: list[str], default: int = 1) -> int:
         print(f"  Please enter a number between 1 and {len(options)}.")
 
 def _ask_yes(prompt: str, default: bool = True) -> bool:
-    """Yes/no prompt. Returns bool."""
+    """Yes/no prompt. Empty input returns the default; anything else must be
+    an explicit yes or no (re-asks on garbage so a typo never confirms)."""
     hint = "Y/n" if default else "y/N"
-    raw = _ask(prompt, hint).lower()
-    if raw in ("y/n", "y", "yes", ""):
-        return default if raw == "" else True
-    return False
+    while True:
+        try:
+            raw = input(f"  {prompt} [{hint}]: ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print("\n\nSetup cancelled.")
+            raise SystemExit(0)
+        if raw == "":
+            return default
+        if raw in ("y", "yes"):
+            return True
+        if raw in ("n", "no"):
+            return False
+        print("  Please answer y or n.")
 
 
 @dataclass

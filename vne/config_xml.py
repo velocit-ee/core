@@ -124,10 +124,14 @@ def extract_api_credentials(xml: str) -> tuple[str | None, str | None]:
     """Return (api_key, api_secret_hash) from a previously rendered config.xml.
 
     Useful when resuming a deployment — we want to reuse the same credentials,
-    not rotate them on every run.
+    not rotate them on every run. Matches the <apikeys><item><key>/<secret>
+    structure this module's own template renders (guarded by a round-trip test).
     """
-    key = re.search(r"<apikey>([^<]+)</apikey>", xml)
-    sec = re.search(r"<apisecret>([^<]+)</apisecret>", xml)
+    item = re.search(r"<apikeys>\s*<item>(.*?)</item>", xml, re.DOTALL)
+    if not item:
+        return (None, None)
+    key = re.search(r"<key>([^<]+)</key>", item.group(1))
+    sec = re.search(r"<secret>([^<]+)</secret>", item.group(1))
     return (key.group(1) if key else None,
             sec.group(1) if sec else None)
 

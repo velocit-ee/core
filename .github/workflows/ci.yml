@@ -23,32 +23,24 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Install package (editable, with dev extras)
+        # The whole stack is one installable distribution now. This also
+        # proves `pip install` works — a regression that used to ship silently.
         run: |
           python -m pip install --upgrade pip
-          pip install -r vme/requirements.txt -r vme/requirements-dev.txt
-          # Shared + VNE deps. Listed inline because shared/ is imported by
-          # both VME and VNE tests; one dep block keeps CI simple.
-          pip install pydantic jsonschema pyyaml typer requests passlib \
-                      tenacity structlog
+          pip install -e '.[dev,opentofu_ansible]'
+
+      - name: Verify console scripts resolve
+        run: |
+          vme --help > /dev/null
+          vne --help > /dev/null
+          velocitee-discover --help > /dev/null
 
       - name: Lint (ruff)
-        # Cover VME, the shared library, and VNE — the new code we added in
-        # the engine + renderer abstractions.
-        run: ruff check vme/cli/ shared/ vne/ --select E,F,W --ignore E501,E402
+        run: ruff check vme/ shared/ vne/ tools/ --select E,F,W --ignore E501,E402
 
-      - name: Test VME
-        run: |
-          cd vme
-          python -m pytest --tb=short -q
-
-      - name: Test shared
-        run: |
-          PYTHONPATH=. python -m pytest shared/tests/ --tb=short -q
-
-      - name: Test docs renderer
-        run: |
-          PYTHONPATH=. python -m pytest tools/tests/ --tb=short -q
+      - name: Test (all suites from repo root)
+        run: python -m pytest --tb=short -q
 
       - name: Verify engines.json drift
         # Fails the job if any marker-delimited region in core READMEs /

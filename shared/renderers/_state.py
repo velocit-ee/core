@@ -37,8 +37,11 @@ class RenderState:
       - completed_at: ISO timestamp when it finished
       - data: arbitrary renderer-specific dict (VM IDs, IPs, API creds, …)
 
-    `with state.step("create_vm") as ctx:` records start, runs the body, and
-    records completion (or failure) on exit. Resuming skips completed steps.
+    Renderers call mark_started / mark_completed / mark_failed around each
+    step and is_completed on resume to skip finished work.
+
+    The file can contain credentials (OPNsense API key/secret survive here
+    across resumes), so it is written 0600 inside a 0700 directory.
     """
 
     def __init__(self, path: Path):
@@ -85,10 +88,13 @@ class RenderState:
 
     def _atomic_write(self) -> None:
         # Atomic write — survive a kill between fsync calls without leaving
-        # a half-written state file.
+        # a half-written state file. Owner-only permissions: the payload can
+        # carry live API credentials.
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.path.parent, 0o700)
         fd, tmp = tempfile.mkstemp(prefix=self.path.name + ".", dir=self.path.parent)
         try:
+            os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w") as fh:
                 json.dump(self._payload, fh, indent=2, sort_keys=True)
                 fh.flush()

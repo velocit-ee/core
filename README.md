@@ -87,11 +87,15 @@ All engines accept config from:
 
 ```bash
 git clone https://github.com/velocit-ee/core
-cd core/vme
+cd core
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest
+pip install -e '.[dev]'   # installs shared + vme + vne as one distribution
+python -m pytest          # runs every engine's suite from the repo root
 ```
+
+The whole stack is a single installable package (`pip install .` /
+`pipx install velocitee`). The `vme`, `vne`, and `velocitee-discover`
+commands come from `[project.scripts]` in the root `pyproject.toml`.
 
 ---
 

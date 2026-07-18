@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from cli import manifest as mf
+from vme.cli import manifest as mf
 
 
 def _make_cfg(**overrides) -> dict:

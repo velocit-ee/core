@@ -101,6 +101,9 @@ class OpenTofuRenderer(Renderer):
                 "opnsense_ip": outputs.get("opnsense_ip"),
                 "opnsense_vmid": outputs.get("opnsense_vmid"),
                 "proxmox_node": outputs.get("proxmox_node"),
+                # The pipeline threads outputs (not artifacts) into the next
+                # phase — the Ansible renderer locates the manifest via this key.
+                "infra_manifest_path": str(manifest_path),
             },
             artifacts={"infra_manifest": str(manifest_path)},
         )
@@ -141,21 +144,72 @@ provider "proxmox" {{
 """
 
     def _variables_tf(self) -> str:
-        return """variable "proxmox_endpoint"   { type = string }
-variable "proxmox_api_token"  { type = string, sensitive = true }
-variable "proxmox_insecure"   { type = bool, default = false }
-variable "proxmox_node"       { type = string }
-variable "vmid"               { type = number }
-variable "vm_name"            { type = string }
-variable "cores"              { type = number }
-variable "memory_mb"          { type = number }
-variable "disk_gb"            { type = number }
-variable "storage_pool"       { type = string }
-variable "iso_url"            { type = string }
-variable "iso_checksum"       { type = string }
-variable "iso_checksum_algorithm" { type = string }
-variable "wan_bridge"         { type = string, default = "vmbr0" }
-variable "lan_bridge"         { type = string, default = "vmbr1" }
+        # HCL2 forbids comma-separated attributes inside a block — one
+        # attribute per line. Guarded by test_renderer_opentofu.py, which
+        # parses every generated file with a real HCL parser.
+        return """variable "proxmox_endpoint" {
+  type = string
+}
+
+variable "proxmox_api_token" {
+  type      = string
+  sensitive = true
+}
+
+variable "proxmox_insecure" {
+  type    = bool
+  default = false
+}
+
+variable "proxmox_node" {
+  type = string
+}
+
+variable "vmid" {
+  type = number
+}
+
+variable "vm_name" {
+  type = string
+}
+
+variable "cores" {
+  type = number
+}
+
+variable "memory_mb" {
+  type = number
+}
+
+variable "disk_gb" {
+  type = number
+}
+
+variable "storage_pool" {
+  type = string
+}
+
+variable "iso_url" {
+  type = string
+}
+
+variable "iso_checksum" {
+  type = string
+}
+
+variable "iso_checksum_algorithm" {
+  type = string
+}
+
+variable "wan_bridge" {
+  type    = string
+  default = "vmbr0"
+}
+
+variable "lan_bridge" {
+  type    = string
+  default = "vmbr1"
+}
 """
 
     def _main_tf(self) -> str:

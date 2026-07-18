@@ -56,6 +56,11 @@ target:
   # SSH public key injected into the provisioned machine.
   ssh_public_key: "ssh-ed25519 AAAA... user@host"
 
+  # SHA-512 crypt hash for the installed account's password (root on Proxmox,
+  # 'ubuntu' on Ubuntu Server). Required — generate with:  openssl passwd -6
+  # `vme setup` fills this in for you. Plaintext passwords are never accepted.
+  password_hash: "$6$replace$with-a-real-hash"
+
 # ── Output ───────────────────────────────────────────────────────────────────
 
 # Where VME writes the handoff manifest after a successful deployment.

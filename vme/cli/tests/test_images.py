@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cli import images as img
+from vme.cli import images as img
 
 
 _CONFIG = {"image_cache_dir": "~/.velocitee/cache/images/"}
@@ -228,7 +228,7 @@ def test_resolve_ubuntu_picks_latest_lts():
     index_mock.text = index_html
     index_mock.raise_for_status = MagicMock()
 
-    with patch("cli.images.requests.get", side_effect=[api_mock, index_mock]):
+    with patch("vme.cli.images.requests.get", side_effect=[api_mock, index_mock]):
         version, iso_url, sha256_url = img._resolve_ubuntu_latest_lts()
 
     assert version == "24.04"
@@ -247,6 +247,6 @@ def test_resolve_ubuntu_no_lts_raises():
     empty_mock.raise_for_status = MagicMock()
 
     # api call + 4 probe candidates
-    with patch("cli.images.requests.get", side_effect=[api_mock] + [empty_mock] * 4):
+    with patch("vme.cli.images.requests.get", side_effect=[api_mock] + [empty_mock] * 4):
         with pytest.raises(RuntimeError, match="Could not resolve"):
             img._resolve_ubuntu_latest_lts()

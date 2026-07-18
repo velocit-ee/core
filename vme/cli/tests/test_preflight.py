@@ -6,7 +6,7 @@ import textwrap
 from unittest.mock import MagicMock, patch
 
 
-from cli import preflight as pf
+from vme.cli import preflight as pf
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +168,7 @@ def test_config_invalid_os(tmp_path):
           os: windows
           disk: /dev/sda
           ssh_public_key: "ssh-ed25519 AAAA..."
+          password_hash: "$6$abc$def"
     """))
     result = pf.check_config(cfg)
     assert not result.passed
@@ -188,9 +189,32 @@ def test_config_valid(tmp_path):
           os: proxmox-ve
           disk: /dev/sda
           ssh_public_key: "ssh-ed25519 AAAA..."
+          password_hash: "$6$abc$def"
     """))
     result = pf.check_config(cfg)
     assert result.passed
+
+
+def test_config_missing_password_hash_rejected(tmp_path):
+    """A missing password hash must fail preflight — never fall back to a
+    default password (regression guard for the 'changeme' fix)."""
+    cfg = tmp_path / "vme-config.yml"
+    cfg.write_text(textwrap.dedent("""\
+        provisioning_interface: eth0
+        dhcp_range_start: 192.168.100.100
+        dhcp_range_end: 192.168.100.200
+        target:
+          hostname: node-01
+          ip: 192.168.100.10
+          gateway: 192.168.100.1
+          netmask: 255.255.255.0
+          os: proxmox-ve
+          disk: /dev/sda
+          ssh_public_key: "ssh-ed25519 AAAA..."
+    """))
+    result = pf.check_config(cfg)
+    assert not result.passed
+    assert "password_hash" in result.detail
 
 
 # ---------------------------------------------------------------------------

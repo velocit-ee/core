@@ -243,7 +243,10 @@ def check_config(config_path: Path) -> CheckResult:
         )
 
     required_top = ["provisioning_interface", "dhcp_range_start", "dhcp_range_end", "target"]
-    required_target = ["hostname", "ip", "gateway", "netmask", "os", "disk", "ssh_public_key"]
+    # password_hash: both installer paths consume the SHA-512 crypt hash
+    # (Ubuntu autoinstall identity.password, Proxmox root-password-hashed).
+    # A missing hash used to fall back to a well-known default — never again.
+    required_target = ["hostname", "ip", "gateway", "netmask", "os", "disk", "ssh_public_key", "password_hash"]
     valid_os = set(OS_REGISTRY)
 
     for key in required_top:
@@ -271,6 +274,14 @@ def check_config(config_path: Path) -> CheckResult:
             passed=False,
             detail=f"Invalid target.os '{target.get('os')}'. Must be one of: {', '.join(sorted(valid_os))}",
             fix=f"Set target.os in vme-config.yml to one of: {', '.join(sorted(valid_os))}",
+        )
+
+    if not str(target.get("password_hash") or "").strip():
+        return CheckResult(
+            name="config",
+            passed=False,
+            detail="target.password_hash is empty — the installer needs a SHA-512 crypt hash.",
+            fix="Generate one: openssl passwd -6  (or re-run 'vme setup')",
         )
 
     return CheckResult(name="config", passed=True, detail="Config file is valid.")
