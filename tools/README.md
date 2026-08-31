@@ -22,20 +22,56 @@ the body between the markers.
 
 ```
 <!-- ENGINE-STATUS:BEGIN region=engine-pill-vme -->
-**Phase 1 · Stable**
+**Phase 1 · Alpha**
 <!-- ENGINE-STATUS:END region=engine-pill-vme -->
 ```
 
-Both repos that consume engine status carry their own copy of this
-script + schema:
+Every repo that consumes engine status carries its own copy of this
+script + schema + data:
 
 - **`velocit-ee/core`** — the canonical home. Targets: `README.md`,
   `CHANGELOG.md`, `vme/README.md`, `vne/README.md`.
 - **`velocit-ee/.github`** — mirrors the script + schema + data file.
   Target: `profile/README.md` (the GitHub org page).
+- **`velocit-ee/docs`** — mirrors the same three, plus this script's tests.
+  Targets: `docs/index.md`, `docs/what-is-velocitee.md`, `docs/vme/index.md`,
+  `docs/vne/index.md`.
 
-CI in both repos runs `python tools/render_engine_status.py --check` and
+CI in every repo runs `python tools/render_engine_status.py --check` and
 fails on drift.
+
+### Two kinds of drift, two checks
+
+`--check` proves a repo's *rendered regions* match *that repo's own*
+`engines.json`. It cannot see that the copy itself has fallen behind. So
+promoting VME to Beta here and forgetting to mirror it left the docs site
+claiming Alpha with a green build on both sides — the one hole in the
+single-source-of-truth design.
+
+`tools/check_mirror.py`, which ships in `docs` and `.github`, closes it: it
+fetches the four canonical files from core and compares them byte for byte.
+
+```bash
+python tools/check_mirror.py           # verify
+python tools/check_mirror.py --write   # pull core's copies down
+```
+
+**Land changes in core first.** A mirroring repo's CI is *meant* to fail
+until core's `main` carries the new version. While a change is in flight,
+point the check at the branch:
+
+```bash
+CORE_REF=my-branch python tools/check_mirror.py
+```
+
+The mirrored set is:
+
+```
+engines.json
+tools/engines_schema.json
+tools/render_engine_status.py
+tools/tests/test_render_engine_status.py
+```
 
 ## When to use it
 

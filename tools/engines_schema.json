@@ -60,8 +60,8 @@
         },
         "status": {
           "type": "string",
-          "enum": ["Stable", "Planned"],
-          "description": "Two-state model. 'Stable' = engine implements its declared scope and is usable. 'Planned' = no implementation yet."
+          "enum": ["Planned", "Alpha", "Beta", "Stable"],
+          "description": "Maturity ladder. 'Planned' = no implementation yet. 'Alpha' = implemented and usable, but the primary paths are not yet covered by automated tests and the interfaces may still change. 'Beta' = feature-complete for its declared scope with its main paths under test; interfaces settling. 'Stable' = interfaces are committed and breaking changes go through deprecation. An engine does not claim a rung it has not reached."
         },
         "version": {
           "type": "string",

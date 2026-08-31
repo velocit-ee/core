@@ -9,7 +9,7 @@
       "slug": "vme",
       "name": "velocitee metal provisioning engine",
       "phase": 1,
-      "status": "Stable",
+      "status": "Alpha",
       "version": "0.1.0",
       "verb": "provision",
       "short": "Bare-metal provisioning — PXE boot + unattended OS install (Proxmox VE, Ubuntu Server). Two backends: `builtin` seed stack or `maas` (optional).",
@@ -23,11 +23,11 @@
       "slug": "vne",
       "name": "velocitee network configuration engine",
       "phase": 2,
-      "status": "Stable",
+      "status": "Alpha",
       "version": "0.1.0",
       "verb": "network",
-      "short": "Network configuration — OPNsense VM, VLANs, DHCP, DNS, firewall. Provisioner-agnostic via the renderer registry. Discovery + Path B (`vne join`) for existing networks.",
-      "long": "Two paths from one CLI. `vne deploy` provisions OPNsense as a VM on Proxmox VE, then configures VLANs, DHCP, DNS, and a baseline firewall, with an automated verification gate before declaring success. `vne join` discovers the network you're already on, identifies the gateway, picks a router adapter (OPNsense, unmanaged catch-all, or pluggable), and writes a join-mode manifest VSE/VLE can consume — read-only end-to-end.",
+      "short": "Network configuration — OPNsense VM, VLANs, DHCP, DNS, firewall. Two working backends via the renderer registry. Discovery + Path B (`vne join`) for existing networks.",
+      "long": "Two paths from one CLI. `vne deploy` provisions OPNsense as a VM on Proxmox VE, then configures VLANs, DHCP, DNS, and a baseline firewall, with an automated verification gate before declaring success. `vne join` discovers the network you're already on, identifies the gateway, picks a router adapter (OPNsense, unmanaged catch-all, or pluggable), and writes a join-mode manifest VSE/VLE can consume — read-only end-to-end. Two backends are implemented; the renderer registry reserves names for others (Pulumi, Salt, Chef, Puppet, CloudFormation, Bicep, Nix, Helm, Packer, ansible-only), which are registered so config validation accepts them but refuse to run.",
       "backends": [
         { "slug": "velocitee-native", "status": "Default",     "summary": "Pure Python — talks Proxmox + OPNsense REST directly. Owns its own state file." },
         { "slug": "opentofu+ansible", "status": "Implemented", "summary": "OpenTofu does VM creation, Ansible does network config. Hard phase gate between the two." }

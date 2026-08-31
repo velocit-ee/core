@@ -4,7 +4,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
 
 <!-- ENGINE-STATUS:BEGIN region=engine-pill-vne -->
-**Phase 2 · Stable**
+**Phase 2 · Alpha**
 <!-- ENGINE-STATUS:END region=engine-pill-vne -->
 
 Takes a provisioned Proxmox host (the output of VME) and turns it into
@@ -259,12 +259,26 @@ velocitee-shared package, VNE imports them.
 
 ## Status
 
-**Stable end-to-end.** Both deploy paths (`vne deploy` provisioning a fresh
-OPNsense, `vne join` registering an existing network) are implemented,
-tested, and verified against real Proxmox + OPNsense targets. The
-`velocitee-native` and `opentofu+ansible` provisioner backends both ship.
-The discovery toolkit is shared with VSE/VLE and gates VNE's join-mode
-capability flags.
+**Alpha.** Both deploy paths are implemented: `vne deploy` provisions a fresh
+OPNsense, `vne join` registers an existing network. The `velocitee-native` and
+`opentofu+ansible` provisioner backends both ship. The discovery toolkit is
+shared with VSE/VLE and gates VNE's join-mode capability flags.
+
+What "alpha" means here, concretely:
+
+- **What is covered by automated tests:** config parsing and validation, the
+  OPNsense XML config generation, the OpenTofu renderer's HCL output, the
+  pipeline/state machine, and the discovery report layer.
+- **What is not:** `deploy.py`, `join.py`, the verification gate, and the
+  `velocitee-native` renderer that drives the Proxmox and OPNsense REST APIs.
+  These are the modules that do the actual work, and they currently have no
+  automated coverage. They have been exercised by hand against real hardware,
+  which is not the same thing.
+- **Interfaces may change.** This is `0.1.0`. Config keys, manifest fields and
+  CLI flags can move in a minor release. See the
+  [release policy](https://docs.velocit.ee/contributing/releasing/).
+
+Run it on hardware you can afford to reinstall.
 
 ---
 

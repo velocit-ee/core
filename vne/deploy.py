@@ -342,6 +342,27 @@ def _validate_against_vne_schema(manifest: dict[str, Any]) -> None:
         fatal(msg)
 
 
+def _vlan_record(vlan: Any) -> dict[str, Any]:
+    """One VLAN entry for the output manifest.
+
+    `dhcp_range` is optional in vne-manifest.schema.json, and when it is present
+    the schema requires a two-element array. This used to emit the key
+    unconditionally with `None` for a VLAN that has no DHCP range, which the
+    schema rejects — so a deployment with any static-only VLAN provisioned the
+    whole network, passed verification, and then failed self-validation at the
+    final step with nothing written. Omit the key instead of nulling it.
+    """
+    record = {
+        "id": vlan.id,
+        "name": vlan.name,
+        "cidr": vlan.cidr,
+        "gateway": vlan.gateway,
+    }
+    if vlan.dhcp_start and vlan.dhcp_end:
+        record["dhcp_range"] = [vlan.dhcp_start, vlan.dhcp_end]
+    return record
+
+
 def _build_vne_record(
     intent: VNEIntent,
     outputs: dict[str, Any],
@@ -365,18 +386,7 @@ def _build_vne_record(
             ),
             "version": intent.opnsense.version,
         },
-        "vlans": [
-            {
-                "id": v.id,
-                "name": v.name,
-                "cidr": v.cidr,
-                "gateway": v.gateway,
-                "dhcp_range": (
-                    [v.dhcp_start, v.dhcp_end] if v.dhcp_start and v.dhcp_end else None
-                ),
-            }
-            for v in intent.network.vlans
-        ],
+        "vlans": [_vlan_record(v) for v in intent.network.vlans],
         "dns": {
             "server": outputs.get("opnsense_ip", ""),
             "domain": intent.network.dns.domain,

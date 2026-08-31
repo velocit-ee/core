@@ -1,4 +1,4 @@
-# Contributing to velocitee core
+# Contributing to Velocitee Vector
 
 Thanks for your interest in contributing.
 

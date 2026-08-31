@@ -11,11 +11,13 @@ Covers:
 
 from __future__ import annotations
 
+import copy
 import json
 import subprocess
 import sys
 from pathlib import Path
 
+import jsonschema
 import pytest
 
 from tools import render_engine_status as r
@@ -224,4 +226,64 @@ def test_real_repo_check_passes() -> None:
     if proc.returncode != 0:
         pytest.fail(
             "live repo has drifted from engines.json:\n" + proc.stdout + proc.stderr
+        )
+
+
+# ---------------------------------------------------------------------------
+# Maturity ladder
+# ---------------------------------------------------------------------------
+
+def _data_with_status(status: str) -> dict:
+    data = copy.deepcopy(SAMPLE)
+    data["engines"][0]["status"] = status
+    return data
+
+
+def _schema() -> dict:
+    return json.loads((Path(__file__).parent.parent / "engines_schema.json").read_text())
+
+
+@pytest.mark.parametrize("status", ["Alpha", "Beta", "Stable"])
+def test_implemented_engines_are_bolded_at_every_rung(status):
+    # The bold used to key on status == "Stable", so correcting the statuses to
+    # something honest silently un-bolded every engine in the table.
+    out = r._render_engine_table(_data_with_status(status))
+    assert "**VME**" in out
+
+
+def test_planned_engines_are_not_bolded():
+    out = r._render_engine_table(_data_with_status("Planned"))
+    assert "**VME**" not in out
+    assert "VME" in out
+
+
+@pytest.mark.parametrize("status", ["Planned", "Alpha", "Beta", "Stable"])
+def test_the_schema_accepts_every_rung_of_the_ladder(status):
+    data = _data_with_status(status)
+    # Must not raise.
+    jsonschema.validate(data, _schema())
+
+
+def test_the_schema_rejects_a_status_off_the_ladder():
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(_data_with_status("Production"), _schema())
+
+
+def test_the_shipped_engines_json_matches_the_shipped_schema():
+    # Guards the mirrored copies in .github and docs as much as this one: they
+    # are byte-identical by policy, so validating here validates all three.
+    root = Path(__file__).resolve().parents[2]
+    jsonschema.validate(json.loads((root / "engines.json").read_text()), _schema())
+
+
+def test_no_engine_claims_a_rung_above_alpha_yet():
+    # The project status section in README.md says both implemented engines are
+    # alpha. If someone promotes one, this fails and the README gets updated in
+    # the same change.
+    root = Path(__file__).resolve().parents[2]
+    data = json.loads((root / "engines.json").read_text())
+    for engine in data["engines"]:
+        assert engine["status"] in ("Planned", "Alpha"), (
+            f"{engine['slug']} claims {engine['status']}; update README.md's "
+            "project status table in the same change"
         )

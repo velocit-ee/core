@@ -396,13 +396,12 @@ def _patch_proxmox_initrd(
 
         init_path.write_text(text)
 
-        # 5. Repack cpio and recompress with zstd
-        r = subprocess.run(
-            f"find . -print0 | cpio --null -o --format=newc | zstd -f -3 -o {cpio_new}",
-            shell=True, cwd=rootfs, capture_output=True, text=True,
-        )
-        if r.returncode != 0:
-            raise RuntimeError(f"cpio/zstd repack failed: {r.stderr.strip()}")
+        # 5. Repack cpio and recompress with zstd.
+        # Built as an explicit process pipeline rather than a shell string: the
+        # destination is an interpolated filesystem path, and handing paths to a
+        # shell is how a directory name with a space or a quote turns into
+        # argument injection. No shell, no quoting rules to get wrong.
+        _repack_initrd(rootfs, cpio_new)
 
         shutil.copy2(cpio_new, initrd_path)
         typer.echo(
@@ -412,6 +411,49 @@ def _patch_proxmox_initrd(
         )
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def _repack_initrd(rootfs: Path, dest: Path) -> None:
+    """`find . -print0 | cpio --null -o --format=newc | zstd -f -3 -o dest`, shell-free.
+
+    Each stage's stdout is wired straight into the next stage's stdin, so the
+    data never round-trips through a temp file and no argument is ever parsed
+    by a shell.
+    """
+    find = subprocess.Popen(
+        ["find", ".", "-print0"],
+        cwd=rootfs, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    cpio = subprocess.Popen(
+        ["cpio", "--null", "-o", "--format=newc"],
+        cwd=rootfs, stdin=find.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    zstd = subprocess.Popen(
+        ["zstd", "-f", "-3", "-o", str(dest)],
+        cwd=rootfs, stdin=cpio.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+
+    # Close our copies of the write ends so each upstream stage sees EOF when
+    # its consumer exits, rather than blocking forever on a pipe we still hold.
+    find.stdout.close()
+    cpio.stdout.close()
+
+    _, zstd_err = zstd.communicate()
+    find_err = find.stderr.read()
+    cpio_err = cpio.stderr.read()
+    find.stderr.close()
+    cpio.stderr.close()
+    find.wait()
+    cpio.wait()
+
+    for name, returncode, err in (
+        ("find", find.returncode, find_err),
+        ("cpio", cpio.returncode, cpio_err),
+        ("zstd", zstd.returncode, zstd_err),
+    ):
+        if returncode != 0:
+            detail = (err or b"").decode(errors="replace").strip()
+            raise RuntimeError(f"cpio/zstd repack failed at {name}: {detail}")
 
 
 def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str, answer_toml: str = "") -> None:

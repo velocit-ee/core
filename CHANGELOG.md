@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to velocitee core are documented here.
+All notable changes to Velocitee Vector are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -203,8 +203,8 @@ to the dependency floor; `vme` and `vne` bump their shared dep accordingly.
 <!-- ENGINE-STATUS:BEGIN region=engine-table-unreleased -->
 | Engine  | Phase | Status  |
 |---------|:-----:|---------|
-| **VME** | 1     | Stable  |
-| **VNE** | 2     | Stable  |
+| **VME** | 1     | Alpha   |
+| **VNE** | 2     | Alpha   |
 | VSE     | 3     | Planned |
 | VLE     | 4     | Planned |
 <!-- ENGINE-STATUS:END region=engine-table-unreleased -->
@@ -236,7 +236,7 @@ Initial public release of the velocitee engine stack.
 
 *Releases before v0.1.0 were internal development iterations.*
 
-> Engine status (Stable / Planned) is tracked at the top of this changelog
+> Engine status (Planned / Alpha / Beta / Stable) is tracked at the top of this changelog
 > under the [Unreleased] section, sourced from `engines.json`. Per-release
 > status snapshots have been removed — they captured a moment in time that
 > stopped being useful once newer engines shipped.

@@ -195,7 +195,7 @@ class AnsibleRenderer(Renderer):
         )
 
     def _playbook_root(self) -> Path:
-        # Bundled inside vne/ansible/. Resolved relative to the velocitee core repo.
+        # Bundled inside vne/ansible/. Resolved relative to the velocit-ee/core repo.
         # We try two locations: the running source tree, and an installed package.
         # For now, copy the playbook tree from <vne_pkg>/ansible into work_dir.
         from importlib import resources

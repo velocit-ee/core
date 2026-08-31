@@ -46,6 +46,48 @@ class CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# TLS policy
+# ---------------------------------------------------------------------------
+# The verification gate authenticates to OPNsense with the API key/secret over
+# HTTPS, so it has to make the same trust decision as
+# shared/renderers/_opnsense_client.py, and make it the same way: verify by
+# default, skip verification only when the operator explicitly opts in with
+# OPNSENSE_INSECURE=1.
+#
+# This was a hardcoded `verify=False`, which handed the API credentials to
+# whatever host answered on that IP without ever checking who it was. On a
+# management network that is credential disclosure via MITM, not a convenience.
+#
+# A freshly deployed OPNsense presents a self-signed certificate, so the first
+# run against a new appliance does need either OPNSENSE_INSECURE=1 or a CA
+# bundle in REQUESTS_CA_BUNDLE. That is now a deliberate, documented opt-in
+# rather than a silent default.
+
+
+def tls_verify() -> bool:
+    """Return the requests `verify` value for OPNsense API calls."""
+    if os.environ.get("OPNSENSE_INSECURE", "0") == "1":
+        try:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        except ImportError:
+            pass
+        return False
+    return True
+
+
+def _tls_hint(exc: Exception) -> str:
+    """Actionable tail for failures caused by certificate validation."""
+    if isinstance(exc, requests.exceptions.SSLError):
+        return (
+            " -- certificate not trusted. A freshly deployed OPNsense uses a "
+            "self-signed certificate: point REQUESTS_CA_BUNDLE at its CA, or "
+            "re-run with OPNSENSE_INSECURE=1 to accept it explicitly."
+        )
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Individual checks
 # ---------------------------------------------------------------------------
 
@@ -59,17 +101,10 @@ def check_api_reachable(
     url = f"https://{opnsense_ip}/api/core/system/status"
     try:
         auth = (api_key, api_secret) if api_key and api_secret else None
-        # OPNsense uses self-signed certs by default — verify=False is appropriate.
-        # Suppress only this client's warnings, not globally.
-        try:
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        except ImportError:
-            pass
-        r = requests.get(url, auth=auth, verify=False, timeout=timeout)
+        r = requests.get(url, auth=auth, verify=tls_verify(), timeout=timeout)
     except requests.RequestException as exc:
         return CheckResult("api_reachable", False,
-                           f"could not reach {url}: {exc}")
+                           f"could not reach {url}: {exc}{_tls_hint(exc)}")
     if r.status_code != 200:
         return CheckResult("api_reachable", False,
                            f"HTTP {r.status_code} from {url}")
@@ -174,15 +209,10 @@ def check_vlans_up(
 
     url = f"https://{opnsense_ip}/api/interfaces/vlan_settings/searchItem"
     try:
-        try:
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        except ImportError:
-            pass
-        r = requests.get(url, auth=(api_key, api_secret), verify=False, timeout=timeout)
+        r = requests.get(url, auth=(api_key, api_secret), verify=tls_verify(), timeout=timeout)
     except requests.RequestException as exc:
         return CheckResult("vlans_up", False,
-                           f"could not query OPNsense VLAN list: {exc}")
+                           f"could not query OPNsense VLAN list: {exc}{_tls_hint(exc)}")
     if r.status_code != 200:
         return CheckResult("vlans_up", False,
                            f"HTTP {r.status_code} from {url}")

@@ -141,9 +141,15 @@ def engine_by_slug(data: dict, slug: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _slug_cell(engine: dict) -> str:
-    """Slug cell with bold for Stable engines, padded to 7 chars (== width of '**VME**')."""
+    """Slug cell, padded to 7 chars (== width of '**VME**').
+
+    Bold marks an engine that exists and can be run today, at any rung of the
+    maturity ladder. Only 'Planned' -- no implementation at all -- stays plain.
+    Keying the bold on 'Stable' alone meant every engine silently un-bolded the
+    moment the statuses were corrected to something honest.
+    """
     slug = engine["slug"].upper()
-    cell = f"**{slug}**" if engine["status"] == "Stable" else slug
+    cell = slug if engine["status"] == "Planned" else f"**{slug}**"
     return cell.ljust(7)
 
 

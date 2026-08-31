@@ -4,7 +4,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
 
 <!-- ENGINE-STATUS:BEGIN region=engine-pill-vme -->
-**Phase 1 · Stable**
+**Phase 1 · Alpha**
 <!-- ENGINE-STATUS:END region=engine-pill-vme -->
 
 Turns bare, unconfigured hardware into a provisioned machine running
@@ -107,7 +107,26 @@ VNE (phase 2) reads this manifest to continue the pipeline without re-asking for
 
 ## Status
 
-**Working end-to-end.** VME successfully PXE boots a target, streams the OS image over the network, runs a fully unattended install of Proxmox VE or Ubuntu Server, and shuts down the target when done. Both OS targets confirmed working against real hardware and Proxmox VMs.
+**Alpha.** VME PXE boots a target, streams the OS image over the network, runs a
+fully unattended install of Proxmox VE or Ubuntu Server, and shuts the target
+down when it is done. Both OS targets have been run against real hardware and
+against Proxmox VMs.
+
+What "alpha" means here, concretely:
+
+- **What is covered by automated tests:** the OS image registry and checksum
+  handling, preflight checks, manifest construction and validation, and backend
+  selection.
+- **What is not:** `vme/cli/vme.py` — the command surface that does the boot,
+  the initrd patching, the seed-stack orchestration and the install monitoring —
+  and the interactive `vme setup` wizard. Together that is the majority of the
+  engine, and it currently has no automated coverage. It has been driven by hand
+  against real hardware, which is not the same thing.
+- **Interfaces may change.** This is `0.1.0`. Config keys, manifest fields and
+  CLI flags can move in a minor release.
+
+VME reboots machines and repartitions disks. Point it at hardware you can afford
+to reinstall.
 
 ---
 
