@@ -1,4 +1,4 @@
-"""Provisioner-name → Renderer-class registry.
+"""Provisioner-name -> Renderer-class registry.
 
 The user picks a provisioner in velocitee.yml:
 
@@ -6,11 +6,7 @@ The user picks a provisioner in velocitee.yml:
       provisioner: "velocitee-native"
 
 VNE looks up that string here and instantiates the matched class. Adding a
-new provisioner is exactly two steps: write a Renderer subclass, register it.
-
-Every backend mentioned in the VNE build prompt has an entry below — fully
-implemented backends and stubs alike. A 'stub' raises NotImplementedError on
-execute() but still validates() so config-time checks pass cleanly.
+new provisioner is two steps: write a Renderer subclass, register it.
 
 Some entries are tuples — provisioners like 'opentofu+ansible' that require
 multiple Renderers run in sequence. The pipeline handles ordering.
@@ -51,28 +47,11 @@ def available() -> list[str]:
 
 
 def _autoregister() -> None:
-    """Eagerly import every renderer module so the registry is populated.
-
-    Done lazily on first lookup so that simply importing the registry doesn't
-    drag in OpenTofu/Ansible imports unless a user actually selects them.
-    """
-    # Import inside the function to keep top-level import light.
-    # Each renderer module calls register(...) at import time.
-    from .renderers import (  # noqa: F401  (side-effect: registers backends)
+    """Eagerly import supported renderer modules so the registry is populated."""
+    from .renderers import (  # noqa: F401
         velocitee_native,
         opentofu,
         ansible,
-        ansible_only,
-        pulumi,
-        salt,
-        chef,
-        puppet,
-        cloudformation,
-        bicep,
-        nix,
-        cloud_init,
-        helm,
-        packer,
     )
 
     # opentofu + ansible — composite backend run in sequence.
@@ -87,5 +66,4 @@ def ensure_loaded() -> None:
     if not _REGISTRY:
         _autoregister()
     elif "opentofu+ansible" not in _REGISTRY:
-        # Composite may need late binding even if individual backends loaded.
         _autoregister()
