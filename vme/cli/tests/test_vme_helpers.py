@@ -195,8 +195,12 @@ def test_repack_initrd_produces_a_readable_archive(tmp_path):
         f"zstd -dc {dest} | cpio -it",
         shell=True, capture_output=True, text=True,
     ).stdout
-    assert "./init" in listing
-    assert "./lib/mod.ko" in listing
+    # BSD cpio (macOS) keeps the "./" that `find .` emits; GNU cpio (Linux)
+    # normalises it away. Both archives are correct, so compare on the paths
+    # rather than on whichever prefix the local cpio happens to print.
+    entries = {line.strip().lstrip("./") for line in listing.splitlines() if line.strip()}
+    assert "init" in entries
+    assert "lib/mod.ko" in entries
 
 
 @needs_cpio
