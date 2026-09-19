@@ -251,6 +251,14 @@ class DemoIterationTester:
             assert "CLAIM_APPROVED" in event_types, "CLAIM_APPROVED not found in audit logs"
             results["checks"].append("structured_audit_logs")
 
+            # Check 11: Plain Profile Verification on Target Hub
+            status, body, _ = http_request(f"{HUB_URL}/?profile=plain")
+            assert status == 200
+            assert b"Velocitee Vector Edge Node #01" in body
+            assert b"Docker Engine" in body
+            assert b"OpenSSH Server" in body
+            results["checks"].append("plain_profile_verification")
+
             results["duration_ms"] = round((time.time() - t0) * 1000, 2)
             results["status"] = "PASSED"
             return results

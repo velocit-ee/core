@@ -108,15 +108,27 @@ def advance_provisioning_pipeline(mac: str):
     if not node:
         return
 
-    stages = [
-        (15, "Claim token verified. Unlocking iPXE bootloader...", "INFO"),
-        (30, "Target received DHCP lease on VLAN 999. Chainloading iPXE...", "INFO"),
-        (50, "Streaming signed Linux kernel & initrd over TLS...", "INFO"),
-        (70, "Partitioning /dev/nvme0n1 and initializing LUKS2 encryption...", "INFO"),
-        (85, "Executing cloud-init: Deploying Nextcloud vault and PostgreSQL...", "INFO"),
-        (95, "Configuring Telia Tallinn DC backup agent & sealing TPM2 keys...", "INFO"),
-        (100, "Node active and sovereign. Migrating to Trusted Office LAN.", "INFO")
-    ]
+    profile = node["claim"].get("profile", "sovereign-legal-advisory")
+    if profile == "plain-ubuntu-server":
+        stages = [
+            (15, "Claim token verified. Unlocking iPXE bootloader...", "INFO"),
+            (30, "Target received DHCP lease on VLAN 999. Chainloading iPXE...", "INFO"),
+            (50, "Streaming Ubuntu Server 24.04 LTS kernel & initrd over TLS...", "INFO"),
+            (70, "Partitioning /dev/nvme0n1 with ext4 and initializing LUKS2 encryption...", "INFO"),
+            (85, "Executing cloud-init: Installing Docker Engine, OpenSSH & Prometheus Node Exporter...", "INFO"),
+            (95, "Configuring network interfaces & sealing hardware security keys...", "INFO"),
+            (100, "Ubuntu Edge Node active. Ready for custom enterprise workloads.", "INFO")
+        ]
+    else:
+        stages = [
+            (15, "Claim token verified. Unlocking iPXE bootloader...", "INFO"),
+            (30, "Target received DHCP lease on VLAN 999. Chainloading iPXE...", "INFO"),
+            (50, "Streaming signed Linux kernel & initrd over TLS...", "INFO"),
+            (70, "Partitioning /dev/nvme0n1 and initializing LUKS2 encryption...", "INFO"),
+            (85, "Executing cloud-init: Deploying Nextcloud vault and PostgreSQL...", "INFO"),
+            (95, "Configuring Telia Tallinn DC backup agent & sealing TPM2 keys...", "INFO"),
+            (100, "Node active and sovereign. Migrating to Trusted Office LAN.", "INFO")
+        ]
 
     sleep_duration = 0.05 if os.environ.get("TELIA_VECTOR_FAST_SIMULATION") else 3.0
     for progress, stage_msg, severity in stages:
@@ -135,11 +147,19 @@ def advance_provisioning_pipeline(mac: str):
             node["vlan"] = 10
             node["vlan_name"] = "Trusted Office Network"
             node["provisioning"]["completed_at"] = datetime.now(timezone.utc).isoformat()
-            node["provisioning"]["active_apps"] = [
-                {"name": "Nextcloud Legal Vault", "port": 8081, "status": "online"},
-                {"name": "Encrypted Audit Database", "port": 5432, "status": "online"},
-                {"name": "Telia DC Backup Agent", "port": 9100, "status": "synced"}
-            ]
+            if profile == "plain-ubuntu-server":
+                node["provisioning"]["active_apps"] = [
+                    {"name": "Universal Node Dashboard", "port": 8081, "status": "online"},
+                    {"name": "OpenSSH Server (Port 22)", "port": 22, "status": "online"},
+                    {"name": "Docker Engine (containerd)", "port": 2375, "status": "active"},
+                    {"name": "Prometheus Node Exporter", "port": 9100, "status": "online"}
+                ]
+            else:
+                node["provisioning"]["active_apps"] = [
+                    {"name": "Nextcloud Legal Vault", "port": 8081, "status": "online"},
+                    {"name": "Encrypted Audit Database", "port": 5432, "status": "online"},
+                    {"name": "Telia DC Backup Agent", "port": 9100, "status": "synced"}
+                ]
 
 class EnterpriseEdgeHandler(http.server.SimpleHTTPRequestHandler):
     def send_cors_headers(self):
@@ -490,6 +510,14 @@ boot
         <h2 class="hero-title">New Sovereign Server Detected</h2>
         <p class="hero-desc">An unprovisioned server node was detected on dedicated Vector Port 4. Isolated from the corporate network until authenticated by an authorized Telia business administrator.</p>
 
+        <div style="margin: 16px 0 14px 0;">
+          <label style="display:block; font-size:11px; font-weight:700; color:var(--telia-muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:6px;">Select Provisioning Profile</label>
+          <select id="profile-select" style="width:100%; background:#1F0B38; color:#FFFFFF; border:1px solid var(--telia-border); border-radius:8px; padding:10px 12px; font-family:var(--font-sans); font-size:13px; outline:none; cursor:pointer;">
+            <option value="sovereign-legal-advisory">Sovereign Legal Advisory (Telia Challenge Demo Scenario)</option>
+            <option value="plain-ubuntu-server">Plain Ubuntu 24.04 LTS (Universal Base Edge Appliance)</option>
+          </select>
+        </div>
+
         <div style="display:flex; gap:16px; align-items:center;">
           <button id="btn-claim" class="btn-claim" onclick="triggerClaim()">
             <span>🛡️ Authenticate & Zero-Touch Deploy</span>
@@ -507,9 +535,9 @@ boot
         </div>
 
         <div id="success-panel" class="success-panel">
-          <div style="font-weight:700; color:var(--accent-green); font-size:16px; margin-bottom:4px;">✅ Sovereign Server Successfully Provisioned!</div>
-          <div style="font-size:13px; color:#E2E8F0; line-height:1.5;">The node has been migrated from Quarantine VLAN 999 to the Trusted Office Network. Full-disk encryption initialized with TPM 2.0 attestation.</div>
-          <a href="http://localhost:8081" target="_blank" class="app-link">
+          <div id="success-title" style="font-weight:700; color:var(--accent-green); font-size:16px; margin-bottom:4px;">✅ Sovereign Server Successfully Provisioned!</div>
+          <div id="success-desc" style="font-size:13px; color:#E2E8F0; line-height:1.5;">The node has been migrated from Quarantine VLAN 999 to the Trusted Office Network. Full-disk encryption initialized with TPM 2.0 attestation.</div>
+          <a id="target-link" href="http://localhost:8081?profile=legal" target="_blank" class="app-link">
             <span>Open Sovereign Legal Workspace →</span>
           </a>
         </div>
@@ -543,6 +571,8 @@ async function pollState() {
       const btn = document.getElementById('btn-claim');
       btn.disabled = true;
       btn.innerHTML = '<span>⚡ Provisioning Active...</span>';
+      const profSelect = document.getElementById('profile-select');
+      if (profSelect) profSelect.disabled = true;
     }
 
     if (node.status === 'active') {
@@ -550,7 +580,21 @@ async function pollState() {
       badge.className = 'hero-badge badge-active';
       badge.innerText = '● Operational & Sovereign (VLAN 10)';
       document.getElementById('btn-claim').style.display = 'none';
+      const profSelect = document.getElementById('profile-select');
+      if (profSelect) profSelect.style.display = 'none';
       document.getElementById('success-panel').style.display = 'block';
+
+      const targetLink = document.getElementById('target-link');
+      if (node.claim.profile === 'plain-ubuntu-server') {
+        document.getElementById('success-title').innerText = '✅ Plain Ubuntu Edge Node Successfully Provisioned!';
+        document.getElementById('success-desc').innerText = 'The bare-metal node is active on VLAN 10 with Docker Engine, OpenSSH, and Prometheus metrics. Ready for custom enterprise workloads.';
+        targetLink.href = 'http://localhost:8081?profile=plain';
+        targetLink.innerHTML = '<span>Open Plain Ubuntu Server Dashboard →</span>';
+      } else {
+        document.getElementById('success-title').innerText = '✅ Sovereign Server Successfully Provisioned!';
+        targetLink.href = 'http://localhost:8081?profile=legal';
+        targetLink.innerHTML = '<span>Open Sovereign Legal Workspace →</span>';
+      }
     }
 
     const consoleBox = document.getElementById('console-box');
@@ -565,12 +609,18 @@ async function pollState() {
 
 async function triggerClaim() {
   const btn = document.getElementById('btn-claim');
+  const profSelect = document.getElementById('profile-select');
+  const profile = profSelect ? profSelect.value : 'sovereign-legal-advisory';
   btn.disabled = true;
+  if (profSelect) profSelect.disabled = true;
   btn.innerText = 'Issuing Cryptographic Claim Token...';
   await fetch('/api/v1/nodes/52:54:00:12:34:56/claim', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profile: 'sovereign-legal-advisory', operator: 'kati@legalpartners.ee' })
+    body: JSON.stringify({
+      profile: profile,
+      operator: profile === 'plain-ubuntu-server' ? 'admin@enterprise.ee' : 'kati@legalpartners.ee'
+    })
   });
   pollState();
 }
