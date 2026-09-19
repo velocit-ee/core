@@ -334,7 +334,11 @@ boot
 <title>Telia Vector — Managed On-Premises Edge Compute</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<!-- Web fonts are optional (G-04): loaded with media=print so a blocked or
+     throttled network never blocks first paint. The CSS font stacks below
+     fall back to system fonts when the request fails or times out. -->
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"></noscript>
 <style>
   :root {
     --telia-purple: #990AE3;

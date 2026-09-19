@@ -50,6 +50,11 @@ target:
   netmask: 255.255.255.0
   dns:     8.8.8.8
 
+  # MAC of the NIC the target boots from (optional). Proxmox installs use it to
+  # pick the NIC for the static address above; leave it out on single-NIC
+  # machines and the installer takes the first NIC.
+  # mac: "aa:bb:cc:dd:ee:ff"
+
   # Disk to install to on the target machine.
   disk: /dev/sda
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -546,7 +547,54 @@ def _extract_boot_files(iso_path: Path, boot_dir: Path, slug: str, answer_toml: 
         _patch_proxmox_initrd(initrd, nic_modules, answer_toml=answer_toml)
 
 
-def _render_templates(cfg: dict, run_dir: Path) -> None:
+_MAC_CLEAN_RE = re.compile(r"[^0-9a-fA-F]")
+
+
+def _mac_suffix(mac: str | None) -> str:
+    """Lowercase hex MAC without separators, for the Proxmox udev NIC filter.
+
+    The answer file's [network] filter is a udev-property *table* (M-01). Its
+    value is matched as a glob against ID_NET_NAME_MAC (e.g. 'enxe43d1afa379a'),
+    so '*<12 hex>' selects exactly that NIC. An empty suffix renders the filter
+    as '*' and lets the installer take the first NIC — the right default for
+    single-NIC targets whose MAC is only learned at DHCPACK time.
+    """
+    if not mac:
+        return ""
+    cleaned = _MAC_CLEAN_RE.sub("", str(mac)).lower()
+    if len(cleaned) != 12:
+        raise ValueError(f"target.mac {mac!r} is not a 48-bit MAC address")
+    return cleaned
+
+
+def _template_subs(cfg: dict, seed_ip: str, *, deploy_token: str = "") -> dict[str, str]:
+    """Every ${VAR} the seed templates may reference, built in one place so the
+    answer file, the autoinstall user-data and the boot menu cannot drift."""
+    target = cfg.get("target", {}) or {}
+    return {
+        "PROVISIONING_INTERFACE": str(cfg.get("provisioning_interface", "")),
+        "DHCP_RANGE_START":       str(cfg.get("dhcp_range_start", "")),
+        "DHCP_RANGE_END":         str(cfg.get("dhcp_range_end", "")),
+        "DHCP_LEASE_TIME":        str(cfg.get("dhcp_lease_time", "12h")),
+        "SEED_IP":                seed_ip,
+        "DEPLOY_TOKEN":           deploy_token,
+        "TARGET_HOSTNAME":        str(target.get("hostname", "node-01")),
+        "TARGET_DOMAIN":          str(target.get("domain", "local")),
+        "TARGET_IP":              str(target.get("ip", "")),
+        "TARGET_PREFIX":          str(target.get("prefix", "24")),
+        "TARGET_GATEWAY":         str(target.get("gateway", "")),
+        "TARGET_NETMASK":         str(target.get("netmask", "255.255.255.0")),
+        "TARGET_DNS":             str(target.get("dns", "8.8.8.8")),
+        "TARGET_DISK":            str(target.get("disk", "/dev/sda")),
+        "TARGET_NIC_MAC_SUFFIX":  _mac_suffix(target.get("mac")),
+        "TARGET_TIMEZONE":        str(target.get("timezone", "UTC")),
+        "TARGET_SSH_PUBLIC_KEY":  str(target.get("ssh_public_key", "")),
+        "TARGET_EMAIL":           str(target.get("email", "root@localhost")),
+        "TARGET_PASSWORD_HASH":   str(target.get("password_hash", "")),
+    }
+
+
+def _render_templates(cfg: dict, run_dir: Path, *, deploy_token: str = "") -> None:
     target    = cfg.get("target", {})
     interface = cfg["provisioning_interface"]
     seed_ip   = cfg.get("seed_ip") or _get_interface_ip(interface) or "192.168.100.1"
@@ -555,26 +603,7 @@ def _render_templates(cfg: dict, run_dir: Path) -> None:
     cache_dir = img.cache_dir_for(cfg)
     entries   = cached_entries(cache_dir)
 
-    subs = {
-        "PROVISIONING_INTERFACE": interface,
-        "DHCP_RANGE_START":       cfg["dhcp_range_start"],
-        "DHCP_RANGE_END":         cfg["dhcp_range_end"],
-        "DHCP_LEASE_TIME":        cfg.get("dhcp_lease_time", "12h"),
-        "SEED_IP":                seed_ip,
-        "TARGET_HOSTNAME":        target.get("hostname", "node-01"),
-        "TARGET_DOMAIN":          target.get("domain", "local"),
-        "TARGET_IP":              target.get("ip", ""),
-        "TARGET_PREFIX":          target.get("prefix", "24"),
-        "TARGET_GATEWAY":         target.get("gateway", ""),
-        "TARGET_NETMASK":         target.get("netmask", "255.255.255.0"),
-        "TARGET_DNS":             target.get("dns", "8.8.8.8"),
-        "TARGET_DISK":            target.get("disk", "/dev/sda"),
-        "TARGET_NIC":             "eth0",
-        "TARGET_TIMEZONE":        target.get("timezone", "UTC"),
-        "TARGET_SSH_PUBLIC_KEY":  target.get("ssh_public_key", ""),
-        "TARGET_EMAIL":           target.get("email", "root@localhost"),
-        "TARGET_PASSWORD_HASH":   target.get("password_hash", ""),
-    }
+    subs = _template_subs(cfg, seed_ip, deploy_token=deploy_token)
 
     # Render the Proxmox answer file BEFORE boot file extraction so the rendered
     # content can be embedded directly into the patched initrd (from-iso mode).
@@ -677,10 +706,40 @@ def _fmt_duration(seconds: float) -> str:
     return f"{m}m {s:02d}s" if m else f"{s}s"
 
 
+_DHCPACK_RE = re.compile(r'DHCPACK\(\S+\)\s+(\d+\.\d+\.\d+\.\d+)\s+([\da-fA-F:]{17})')
+_COMPLETION_RE = re.compile(
+    r'(?P<ip>\d+\.\d+\.\d+\.\d+) - \S+ \[[^\]]*\] '
+    r'"(?:GET|POST) /vme-provision-complete/(?P<token>[A-Za-z0-9_\-]+)'
+)
+
+
+def _completion_event(line: str, *, deploy_token: str, expected_ips: set[str]) -> tuple[bool, str]:
+    """Decide whether an nginx access-log line is *this* deployment finishing.
+
+    Previously any host on the provisioning LAN could `GET
+    /vme-provision-complete` and VME wrote a success manifest for a machine
+    that never installed (M-04). The target now has to present the per-deploy
+    token rendered into its autoinstall / answer file, and the request has to
+    come from an address we expect. Returns (accepted, warning_or_empty).
+    """
+    m = _COMPLETION_RE.search(line)
+    if not m:
+        return False, ""
+    src = m.group("ip")
+    if not deploy_token or m.group("token") != deploy_token:
+        return False, f"completion signal from {src} carried the wrong deploy token — ignored"
+    if expected_ips and src not in expected_ips:
+        return False, f"completion signal from unexpected address {src} — ignored"
+    return True, ""
+
+
 def _stream_deploy_logs(
     cwd: Path,
     log_path: Path,
     verbose: bool,
+    *,
+    deploy_token: str = "",
+    expected_ips: set[str] | None = None,
 ) -> tuple[bool, str | None]:
     """Stream compose logs. Returns (completed, mac_address).
 
@@ -701,12 +760,22 @@ def _stream_deploy_logs(
     completed  = False
     mac        = None
     shown: set[str] = set()
+    # Addresses a genuine completion request may come from: the static address
+    # the installed OS was configured with, plus any lease dnsmasq hands out.
+    expected: set[str] = set(expected_ips or ())
 
     try:
         with open(log_path, "w") as log_fh:
             for raw in proc.stdout:
                 log_fh.write(raw)
                 log_fh.flush()
+
+                # Learn the target's MAC and lease address in every mode; the
+                # completion check below needs the address even under -v.
+                ack = _DHCPACK_RE.search(raw)
+                if ack:
+                    expected.add(ack.group(1))
+                    mac = mac or ack.group(2)
 
                 if verbose:
                     sys.stdout.write(raw)
@@ -729,17 +798,18 @@ def _stream_deploy_logs(
                                 break
                             shown.add(key)
                             typer.echo(f"  [{ts}]  {msg}")
-                            # Capture MAC from DHCPACK line
-                            if "DHCP lease" in msg:
-                                m2 = re.search(r'\(([\da-fA-F:]{17})\)', msg)
-                                if m2:
-                                    mac = m2.group(1)
                         break
 
-                # Completion signal — stop regardless of mode
-                if "vme-provision-complete" in raw:
+                # Completion signal — only this deployment's token, from an
+                # address we expect, ends the watch (M-02 / M-04).
+                accepted, why = _completion_event(
+                    raw, deploy_token=deploy_token, expected_ips=expected,
+                )
+                if accepted:
                     completed = True
                     break
+                if why:
+                    warn(why)
 
     except KeyboardInterrupt:
         pass
@@ -951,7 +1021,10 @@ def deploy(
 
     run_dir = config.parent / "run"
     typer.echo("Preparing seed stack config ...")
-    _render_templates(cfg, run_dir)
+    # Per-deploy token the target must echo back in its completion request
+    # (M-02 / M-04). It lives only in run/ and in this process; never logged.
+    deploy_token = secrets.token_urlsafe(16)
+    _render_templates(cfg, run_dir, deploy_token=deploy_token)
 
     typer.echo("Starting seed stack ...")
     _run_compose(cfg, config.parent, up=True)
@@ -971,7 +1044,12 @@ def deploy(
         typer.echo(f"  Watching for key events. Full logs → {log_path}")
         typer.echo("  Press Ctrl+C to stop manually.\n")
 
-    completed, mac = _stream_deploy_logs(config.parent, log_path, verbose=verbose)
+    target_ip = str(cfg.get("target", {}).get("ip", "") or "")
+    completed, mac = _stream_deploy_logs(
+        config.parent, log_path, verbose=verbose,
+        deploy_token=deploy_token,
+        expected_ips={target_ip} if target_ip else set(),
+    )
 
     completed_at = datetime.now(timezone.utc)
 
@@ -980,9 +1058,12 @@ def deploy(
     _run_compose(cfg, config.parent, up=False)
 
     if not completed:
-        typer.echo("\nSeed stack stopped. Provisioning may not have completed.")
+        typer.echo("\nSeed stack stopped. Provisioning did not complete.")
         typer.echo(f"Check the full logs at: {log_path}")
-        raise typer.Exit(0)
+        typer.echo("No manifest was written.")
+        # A deploy that produced no manifest must not look like success to a
+        # wrapping script or CI job (M-08).
+        raise typer.Exit(1)
 
     # Write manifest.
     try:

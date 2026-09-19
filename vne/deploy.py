@@ -253,7 +253,12 @@ def deploy(
         os.environ.get("OPNSENSE_API_KEY")
         or result.aggregated_outputs.get("opnsense_api_key")
     )
-    api_secret = os.environ.get("OPNSENSE_API_SECRET")
+    # velocitee-native generates the key pair itself and publishes both halves
+    # as pipeline outputs; an operator-supplied env var still wins (N-01).
+    api_secret = (
+        os.environ.get("OPNSENSE_API_SECRET")
+        or result.aggregated_outputs.get("opnsense_api_secret")
+    )
 
     passed, checks = vne_verify.run_all(
         opnsense_ip=opnsense_ip,

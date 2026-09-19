@@ -26,13 +26,26 @@ _purple "  ╚══════════════════════
 echo
 
 # 1. Check prerequisites
+# The demo has no network dependencies (G-04): both services are local Python
+# processes and the provisioning pipeline is simulated in-process. QEMU is
+# only reported, never installed or launched here, so venue Wi-Fi that blocks
+# Homebrew or package mirrors cannot stall the pitch.
 _bold "1. Validating Hardware & Edge Environment ..."
-if ! command -v qemu-system-aarch64 &>/dev/null; then
-    echo "  [!] Installing qemu via Homebrew..."
-    brew install qemu
+if ! command -v python3 &>/dev/null; then
+    echo "  [!] python3 is required and was not found on PATH." >&2
+    exit 1
 fi
-_green "  [✓] Apple Silicon Hypervisor (HVF) ready."
+if command -v qemu-system-aarch64 &>/dev/null; then
+    _green "  [✓] QEMU present (optional; not used by this demo)."
+else
+    echo "  [i] QEMU not installed — not needed for the demo. Skipping."
+fi
 _green "  [✓] Router Spec Capped: Technicolor DGA4330 / Telia X2 (ARMv7/v8, 512MB RAM)."
+_green "  [✓] Offline-safe: no package mirrors or external services are contacted."
+if [[ ! -f "$TELIA_DIR/assets/boot/initrd" ]]; then
+    echo "  [i] Boot artefacts not present (not needed for the demo). For a real PXE boot run:"
+    echo "      $TELIA_DIR/scripts/fetch-assets.sh"
+fi
 
 # 2. Start Telia Vector Edge Daemon
 _bold "\n2. Starting Telia Vector Daemon (Port 8088) ..."
@@ -49,8 +62,9 @@ sleep 1
 cleanup() {
     echo
     _cyan "\nShutting down demo environment ..."
+    # Only stop the processes this script started. The previous pkill of
+    # every qemu-system-aarch64 on the host would kill unrelated VMs.
     kill "$AGENT_PID" "$HUB_PID" 2>/dev/null || true
-    pkill -f qemu-system-aarch64 2>/dev/null || true
     _green "Telia Vector services stopped cleanly."
 }
 trap cleanup EXIT INT TERM

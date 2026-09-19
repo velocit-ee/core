@@ -351,6 +351,11 @@ iso_checksum_algorithm = "{algo or 'sha256'}"
                 ],
                 "dns_upstream": list(self.intent.network.dns.upstream),
                 "firewall_default_policy": self.intent.network.firewall.default_policy,
+                # Without this the Ansible phase looped over an empty list and
+                # silently applied no allow rules (N-04).
+                "firewall_allow_rules": [
+                    r.model_dump() for r in self.intent.network.firewall.allow_rules
+                ],
             },
         }
         out.write_text(json.dumps(payload, indent=2))

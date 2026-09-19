@@ -1,4 +1,4 @@
-# Proxmox VE unattended answer file (proxmox-ve 8.x / 9.x)
+# Proxmox VE unattended answer file (proxmox-ve 8.3+ / 9.x)
 # Values are templated by VME at deploy time from vme-config.yml.
 # See: https://pve.proxmox.com/wiki/Automated_Installation
 
@@ -8,7 +8,8 @@ country = "de"
 fqdn = "${TARGET_HOSTNAME}.${TARGET_DOMAIN}"
 # SHA-512 crypt hash written by `vme setup` (target.password_hash).
 # The installer accepts the hashed form directly — VME never renders a
-# plaintext root password into this file.
+# plaintext root password into this file. `root-password-hashed` exists
+# since PVE 8.3-1; VME resolves the latest ISO, which satisfies that.
 root-password-hashed = "${TARGET_PASSWORD_HASH}"
 mailto = "${TARGET_EMAIL}"
 timezone = "${TARGET_TIMEZONE}"
@@ -23,4 +24,16 @@ source = "from-answer"
 cidr = "${TARGET_IP}/${TARGET_PREFIX}"
 dns = "${TARGET_DNS}"
 gateway = "${TARGET_GATEWAY}"
-filter = "${TARGET_NIC}"
+# `filter` is a udev-property table, not a string (M-01). ID_NET_NAME_MAC looks
+# like "enxe43d1afa379a"; the glob selects the NIC whose MAC ends with
+# target.mac from vme-config.yml. With no MAC configured this renders as "*",
+# which lets the installer take the first NIC — fine for single-NIC targets.
+filter.ID_NET_NAME_MAC = "*${TARGET_NIC_MAC_SUFFIX}"
+
+# Fires once the installer has finished writing the disk (M-02). nginx logs the
+# request and `vme deploy` accepts a request that carries this deployment's
+# token, from an address it expects, as the completion signal (M-04). Plain
+# HTTP on the isolated provisioning LAN — the same trust boundary as the boot
+# artefacts themselves.
+[post-installation-webhook]
+url = "http://${SEED_IP}/vme-provision-complete/${DEPLOY_TOKEN}"

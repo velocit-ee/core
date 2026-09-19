@@ -47,3 +47,27 @@ jobs:
         # CHANGELOG has drifted from engines.json. Fix locally with:
         #   python tools/render_engine_status.py --write
         run: python tools/render_engine_status.py --check
+
+  hygiene:
+    name: Repo hygiene (pre-commit hooks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Large files, merge markers, YAML/JSON/TOML syntax
+        # The 36 MB of boot binaries in 0280835 got past check-added-large-files
+        # because hooks only run where they are installed (C-01). Running the
+        # hygiene hooks here makes the 1 MB cap a property of the repository,
+        # not of one developer's checkout. ruff/ruff-format stay local-only
+        # until the tree is formatted; the lint job above covers correctness.
+        run: |
+          for hook in check-added-large-files check-merge-conflict check-yaml check-json check-toml; do
+            pre-commit run --all-files "$hook"
+          done

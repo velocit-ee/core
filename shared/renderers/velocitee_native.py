@@ -157,6 +157,7 @@ class VelociteeNativeRenderer(Renderer):
             )
 
         api_key = self._state.shared_get("opnsense_api_key", "")
+        api_secret = self._state.shared_get("opnsense_api_secret_plain", "")
         opnsense_ip = self._state.shared_get("opnsense_ip", "")
         return ProvisioningResult(
             success=True,
@@ -166,6 +167,10 @@ class VelociteeNativeRenderer(Renderer):
                 "opnsense_ip": opnsense_ip,
                 "opnsense_api_endpoint": f"https://{opnsense_ip}",
                 "opnsense_api_key": api_key,
+                # The verification gate authenticates with the pair this
+                # renderer generated (N-01). deploy.py copies named keys into
+                # the manifest, never the whole outputs dict — a test pins that.
+                "opnsense_api_secret": api_secret,
                 "opnsense_vmid": self.intent.opnsense.vm.vmid,
                 "proxmox_node": self._node,
             },

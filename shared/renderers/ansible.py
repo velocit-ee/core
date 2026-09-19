@@ -167,6 +167,8 @@ class AnsibleRenderer(Renderer):
             "lan_interface": intent.get("lan_interface"),
             "wan_interface": intent.get("wan_interface"),
             "firewall_default_policy": intent.get("firewall_default_policy", "block"),
+            # Consumed by roles/opnsense-firewall as `allow_rules` (N-04).
+            "allow_rules": intent.get("firewall_allow_rules", []),
         }
         with open(d / "group_vars" / "opnsense.yml", "w") as fh:
             yaml.safe_dump(vars_payload, fh, sort_keys=False)

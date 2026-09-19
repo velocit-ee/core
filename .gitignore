@@ -54,3 +54,11 @@ pip-wheel-metadata/
 .env
 .env.*
 *.local
+
+# Telia Vector boot artefacts are release assets, not source (C-01).
+# Fetch with vector/telia/scripts/fetch-assets.sh; only the checksum manifest
+# and provenance notes are tracked.
+vector/telia/assets/boot/*
+vector/telia/assets/tftp/*
+!vector/telia/assets/boot/.gitkeep
+!vector/telia/assets/tftp/.gitkeep

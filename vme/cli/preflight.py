@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import socket
 import subprocess
@@ -14,6 +15,9 @@ import yaml
 from .os_registry import OS_REGISTRY
 
 VME_REQUIRED_DISK_GB = 20  # minimum free space for image cache
+
+# aa:bb:cc:dd:ee:ff, aa-bb-cc-dd-ee-ff or aabbccddeeff
+_MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$|^[0-9A-Fa-f]{12}$")
 
 
 @dataclass
@@ -274,6 +278,15 @@ def check_config(config_path: Path) -> CheckResult:
             passed=False,
             detail=f"Invalid target.os '{target.get('os')}'. Must be one of: {', '.join(sorted(valid_os))}",
             fix=f"Set target.os in vme-config.yml to one of: {', '.join(sorted(valid_os))}",
+        )
+
+    mac = target.get("mac")
+    if mac and not _MAC_RE.match(str(mac).strip()):
+        return CheckResult(
+            name="config",
+            passed=False,
+            detail=f"target.mac '{mac}' is not a MAC address.",
+            fix="Use aa:bb:cc:dd:ee:ff (or omit target.mac on single-NIC machines).",
         )
 
     if not str(target.get("password_hash") or "").strip():
