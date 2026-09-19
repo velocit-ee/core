@@ -9,7 +9,7 @@ import os
 import secrets
 import time
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Tuple
 
 # Edge secret key (generated per gateway instance)
 _GATEWAY_SECRET = os.environ.get("TELIA_EDGE_SECRET", secrets.token_hex(32)).encode()
@@ -45,7 +45,7 @@ def generate_claim_token(mac: str, profile: str) -> Tuple[str, int]:
     payload = f"{mac.lower()}:{profile}:{expires_at}"
     signature = hmac.new(_GATEWAY_SECRET, payload.encode(), hashlib.sha256).hexdigest()
     token = f"{expires_at}.{signature}"
-    
+
     record_audit_event(
         event_type="CLAIM_TOKEN_ISSUED",
         actor="telia_admin_portal",
@@ -58,16 +58,16 @@ def verify_claim_token(mac: str, profile: str, token: str) -> bool:
     """Verifies that a claim token is authentic, unexpired, and matches the MAC."""
     if not token or "." not in token:
         return False
-        
+
     parts = token.split(".")
     if len(parts) != 2:
         return False
-        
+
     try:
         expires_at = int(parts[0])
     except ValueError:
         return False
-        
+
     if time.time() > expires_at:
         record_audit_event(
             event_type="CLAIM_TOKEN_EXPIRED",
@@ -77,10 +77,10 @@ def verify_claim_token(mac: str, profile: str, token: str) -> bool:
             severity="WARN"
         )
         return False
-        
+
     expected_payload = f"{mac.lower()}:{profile}:{expires_at}"
     expected_sig = hmac.new(_GATEWAY_SECRET, expected_payload.encode(), hashlib.sha256).hexdigest()
-    
+
     if not hmac.compare_digest(parts[1], expected_sig):
         record_audit_event(
             event_type="CLAIM_TOKEN_INVALID_SIG",
@@ -90,5 +90,5 @@ def verify_claim_token(mac: str, profile: str, token: str) -> bool:
             severity="ALERT"
         )
         return False
-        
+
     return True

@@ -79,7 +79,7 @@ shared = ["schema.json", "*.json"]
 
 [tool.pytest.ini_options]
 # Run every engine's suite from the core root: `python -m pytest`
-testpaths = ["shared/tests", "vme/cli/tests", "vne/tests", "tools/tests"]
+testpaths = ["shared/tests", "vme/cli/tests", "vne/tests", "tools/tests", "vector/telia/tests"]
 pythonpath = ["."]
 
 [tool.ruff]

@@ -6,7 +6,6 @@ Simulates the live, operational business server after zero-touch provisioning.
 
 import http.server
 import socketserver
-import os
 
 PORT = 8081
 socketserver.TCPServer.allow_reuse_address = True
@@ -41,7 +40,7 @@ HTML = """<!DOCTYPE html>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: var(--font-sans); padding: 36px; min-height: 100vh; }
   .container { max-width: 1140px; margin: 0 auto; }
-  
+
   /* Header */
   .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
   .brand-title h1 { font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
@@ -74,7 +73,7 @@ HTML = """<!DOCTYPE html>
 </head>
 <body>
 <div class="container">
-  
+
   <header class="header">
     <div class="brand-title">
       <h1>Sovereign Office Workspace #01 <span style="font-size:12px; color:#A855F7; font-weight:600; background:rgba(168,85,247,0.1); padding:2px 8px; border-radius:4px;">TALLINN HQ</span></h1>
@@ -165,6 +164,8 @@ class HubHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(HTML.encode())
 
 if __name__ == "__main__":
+    http.server.ThreadingHTTPServer.allow_reuse_address = True
+    http.server.ThreadingHTTPServer.daemon_threads = True
     print(f"Telia Sovereign Hub running on port {PORT}...")
-    with socketserver.TCPServer(("", PORT), HubHandler) as httpd:
+    with http.server.ThreadingHTTPServer(("", PORT), HubHandler) as httpd:
         httpd.serve_forever()

@@ -10,8 +10,6 @@ and implements zero-trust hardware claim workflows.
 import http.server
 import json
 import os
-import socketserver
-import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -120,8 +118,9 @@ def advance_provisioning_pipeline(mac: str):
         (100, "Node active and sovereign. Migrating to Trusted Office LAN.", "INFO")
     ]
 
+    sleep_duration = 0.05 if os.environ.get("TELIA_VECTOR_FAST_SIMULATION") else 3.0
     for progress, stage_msg, severity in stages:
-        time.sleep(3.0)
+        time.sleep(sleep_duration)
         node["provisioning"]["progress"] = progress
         node["provisioning"]["stage"] = stage_msg
         record_audit_event(
@@ -175,7 +174,7 @@ class EnterpriseEdgeHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(edge_state["nodes"], indent=2).encode())
             return
 
-        if path == "/api/v1/audit-log":
+        if path in ("/api/v1/audit-log", "/api/v1/logs"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_cors_headers()
@@ -282,7 +281,7 @@ boot
         if path.startswith("/api/v1/nodes/") and path.endswith("/claim"):
             mac = path.split("/")[4]
             node = next((n for n in edge_state["nodes"] if n["mac"].lower() == mac.lower()), None)
-            
+
             if not node:
                 self.send_response(404)
                 self.send_cors_headers()
@@ -291,7 +290,16 @@ boot
                 return
 
             length = int(self.headers.get('Content-Length', 0))
-            body = json.loads(self.rfile.read(length)) if length > 0 else {}
+            try:
+                body = json.loads(self.rfile.read(length)) if length > 0 else {}
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Malformed JSON payload"}).encode())
+                return
+
             profile = body.get("profile", "sovereign-legal-advisory")
             actor = body.get("operator", "kati@legalpartners.ee")
 
@@ -305,6 +313,14 @@ boot
             node["provisioning"]["started_at"] = datetime.now(timezone.utc).isoformat()
             node["provisioning"]["stage"] = "Claim verified. Unlocking bootloader..."
 
+            record_audit_event(
+                event_type="CLAIM_APPROVED",
+                actor=actor,
+                target_mac=mac,
+                details=f"Hardware claim approved for profile '{profile}'. Token issued: {token[:12]}...",
+                severity="INFO"
+            )
+
             threading.Thread(target=advance_provisioning_pipeline, args=(mac,), daemon=True).start()
 
             self.send_response(200)
@@ -313,6 +329,7 @@ boot
             self.end_headers()
             self.wfile.write(json.dumps({
                 "success": True,
+                "status": "claiming",
                 "product": "Telia Vector",
                 "mac": mac,
                 "claim_token": token,
@@ -357,7 +374,7 @@ boot
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--telia-dark); color: var(--telia-text); font-family: var(--font-sans); padding: 32px; min-height: 100vh; line-height: 1.5; }
   .container { max-width: 1280px; margin: 0 auto; }
-  
+
   /* Header */
   .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 24px; border-bottom: 1px solid var(--telia-border); margin-bottom: 32px; }
   .brand-group { display: flex; align-items: center; gap: 16px; }
@@ -432,7 +449,7 @@ boot
 
   <!-- Content Grid -->
   <div class="layout-grid">
-    
+
     <!-- Left Column: CPE Hardware & Compliance -->
     <div>
       <div class="card">
@@ -537,7 +554,7 @@ async function pollState() {
     }
 
     const consoleBox = document.getElementById('console-box');
-    consoleBox.innerHTML = logs.map(l => 
+    consoleBox.innerHTML = logs.map(l =>
       `<div class="log-line"><span class="log-time">${l.timestamp.slice(11, 19)}</span><span class="log-badge" style="color:${l.severity === 'ALERT' ? '#FF5252' : l.severity === 'WARN' ? '#FFB300' : '#00E676'};">[${l.event_type}]</span>${l.details}</div>`
     ).join('');
     consoleBox.scrollTop = consoleBox.scrollHeight;
@@ -566,8 +583,9 @@ pollState();
 """
 
 if __name__ == "__main__":
-    socketserver.TCPServer.allow_reuse_address = True
+    http.server.ThreadingHTTPServer.allow_reuse_address = True
+    http.server.ThreadingHTTPServer.daemon_threads = True
     record_audit_event("VECTOR_DAEMON_START", "system", "router_cpe", f"Telia Vector edge daemon v1.0.0 initialized on port {PORT}")
     print(f"Telia Vector Daemon starting on port {PORT}...")
-    with socketserver.TCPServer(("", PORT), EnterpriseEdgeHandler) as httpd:
+    with http.server.ThreadingHTTPServer(("", PORT), EnterpriseEdgeHandler) as httpd:
         httpd.serve_forever()
