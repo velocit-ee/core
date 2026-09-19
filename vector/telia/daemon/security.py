@@ -26,8 +26,9 @@ def record_audit_event(
     severity: str = "INFO"
 ) -> Dict[str, Any]:
     """Records an immutable security audit event."""
+    ts = datetime.now(timezone.utc).isoformat()
     event = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": ts,
         "event_id": secrets.token_hex(6),
         "severity": severity,
         "event_type": event_type,
@@ -37,6 +38,7 @@ def record_audit_event(
         "compliance": ["GDPR_Art32", "NIS2_SupplyChain", "Estonia_KTS"]
     }
     audit_log.append(event)
+    print(f"  \033[1;35m[ROUTER-SYSLOG]\033[0m \033[36m[{ts[11:19]}]\033[0m [{severity:5s}] [{event_type:20s}] {details}", flush=True)
     return event
 
 def generate_claim_token(mac: str, profile: str) -> Tuple[str, int]:

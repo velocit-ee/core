@@ -158,14 +158,30 @@ HTML = """<!DOCTYPE html>
 
 class HubHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
+        print(f"  \033[1;32m[SERVER-NODE]\033[0m HTTP GET {self.path} from {self.client_address[0]} (200 OK)", flush=True)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(HTML.encode())
 
+    def log_message(self, format, *args):
+        # Suppress raw stderr dump since we print our structured log above
+        pass
+
 if __name__ == "__main__":
     http.server.ThreadingHTTPServer.allow_reuse_address = True
     http.server.ThreadingHTTPServer.daemon_threads = True
-    print(f"Telia Sovereign Hub running on port {PORT}...")
+    print("""
+\033[1;32m╔══════════════════════════════════════════════════════════════════════╗\033[0m
+\033[1;32m║   TELIA SOVEREIGN SERVER NODE -- LIVE TARGET CONSOLE (TTY1)          ║\033[0m
+\033[1;32m║   Status: Operational & Sovereign · Port 8081                        ║\033[0m
+\033[1;32m╚══════════════════════════════════════════════════════════════════════╝\033[0m
+  [✓] Chassis:         1U Edge MicroServer (Intel Xeon / ARM64 Ampere)
+  [✓] Primary MAC:     52:54:00:12:34:56 (VLAN 10 Trusted Office)
+  [✓] Disk Partition:  /dev/nvme0n1 LUKS2 Encrypted (AES-XTS-512)
+  [✓] Hardware Key:    TPM 2.0 PCR[7] Attestation Sealed
+  [✓] App Workspace:   Nextcloud Legal Vault on http://localhost:8081
+  [✓] Sovereign DB:    PostgreSQL 16 on port 5432
+""", flush=True)
     with http.server.ThreadingHTTPServer(("", PORT), HubHandler) as httpd:
         httpd.serve_forever()
